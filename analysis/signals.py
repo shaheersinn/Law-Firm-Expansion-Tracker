@@ -1,65 +1,55 @@
 """
-Expansion Signal Scorer & Spike Detector
-==========================================
-For each (firm, department) pair:
-  1. Aggregate weighted signals from current week
-  2. Compare to 4-week rolling baseline using z-score
-  3. Flag pairs with significant activity
+Expansion signal scorer and spike detector.
+
+For each (firm, department) pair, this module:
+  1. Aggregates all raw signals from the current week
+  2. Compares to the rolling 4-week baseline
+  3. Scores expansion confidence using a weighted signal model
+  4. Flags pairs with significant spikes as "expanding"
 
 Expansion Score Formula:
-  score = Σ (signal_weight × min(dept_score, 20) × 0.1 + 1)
+  score = Σ (signal_weight × department_score × recency_multiplier)
 
-Spike detection:
-  - z-score >= 1.5  → significant spike (flagged)
-  - OR score >= 4.0 with no prior history → new signal
-  - spike_ratio = current / baseline (for display)
+Signal weights by type:
+  lateral_hire    → 3.0  (strongest: firm paid to bring in expertise)
+  practice_page   → 2.5  (firm invested in marketing a new area)
+  job_posting     → 2.0  (firm is actively hiring in the area)
+  press_release   → 1.5  (firm is publicizing work in the area)
+  publication     → 1.0  (lawyers are writing about the area)
+  attorney_profile→ 1.0  (bios updated with new practice area)
 """
 
 import logging
-import statistics
 from collections import defaultdict
+from datetime import datetime, timedelta
 from database.db import Database
 
 logger = logging.getLogger("signals")
 
 SIGNAL_WEIGHTS = {
-    # ── Tier 1: Firm made a real financial or reputational commitment ──
-    "bar_leadership":   3.5,
-    "ranking":          3.0,
+    # Original signals
     "lateral_hire":     3.0,
-    # ── Tier 2: Observable, verifiable activity ─────────────────────────
-    "court_record":     2.5,
     "practice_page":    2.5,
     "job_posting":      2.0,
-    "recruit_posting":  2.0,
-    # ── Tier 3: Early indicators ─────────────────────────────────────────
     "press_release":    1.5,
-    "bar_speaking":     1.5,
     "publication":      1.0,
-    "bar_sponsorship":  1.0,
     "attorney_profile": 1.0,
-    "bar_mention":      0.5,
     "website_snapshot": 0.0,
+    # Enhanced signals
+    "bar_leadership":   3.5,  # section chair = firm asserting leadership
+    "ranking":          3.0,  # Chambers/Legal500 = third-party validation
+    "court_record":     2.5,  # CanLII = actual filed cases
+    "recruit_posting":  2.0,  # student hiring = planned 12-18mo expansion
+    "bar_speaking":     1.5,  # presenting at bar = building profile
+    "bar_sponsorship":  1.0,  # sponsoring bar event = BD investment
+    "bar_mention":      0.5,
 }
 
-# Minimum score to report
-EXPANSION_THRESHOLD = 3.5
+# Minimum expansion score to flag as "expanding"
+EXPANSION_THRESHOLD = 4.0
 
-# Signal confidence tier labels for display
-CONFIDENCE_TIER = {
-    "bar_leadership":   "Tier 1",
-    "ranking":          "Tier 1",
-    "lateral_hire":     "Tier 1",
-    "court_record":     "Tier 2",
-    "practice_page":    "Tier 2",
-    "job_posting":      "Tier 2",
-    "recruit_posting":  "Tier 2",
-    "press_release":    "Tier 3",
-    "bar_speaking":     "Tier 3",
-    "publication":      "Tier 3",
-    "bar_sponsorship":  "Tier 3",
-    "attorney_profile": "Tier 3",
-}
+# Spike: current week score is at least this multiple of baseline average
+SPIKE_MULTIPLIER = 1.8
 
 
 class ExpansionAnalyzer:
@@ -67,59 +57,49 @@ class ExpansionAnalyzer:
         self.db = db
 
     def analyze(self, new_signals: list[dict]) -> list[dict]:
+        """
+        Given new signals collected this run, return a list of expansion alerts:
+        firms/departments showing significant growth signals.
+        """
         alerts = []
 
+        # Group new signals by (firm_id, department)
         grouped = defaultdict(list)
-        for sig in new_signals:
-            if sig.get("department") and sig["signal_type"] != "website_snapshot":
-                grouped[(sig["firm_id"], sig["department"])].append(sig)
+        for signal in new_signals:
+            if signal["department"] and signal["signal_type"] != "website_snapshot":
+                key = (signal["firm_id"], signal["department"])
+                grouped[key].append(signal)
 
+        # Score each group
         for (firm_id, department), signals in grouped.items():
             current_score = self._score_signals(signals)
 
-            # Get historical weekly scores for z-score calculation
-            history = self._get_history(firm_id, department)
-            baseline_mean = statistics.mean(history) if history else 0.0
-            baseline_std  = statistics.stdev(history) if len(history) >= 2 else 0.0
+            # Get baseline: average weekly score over past 4 weeks
+            baseline = self.db.get_weekly_baseline(firm_id, department, weeks=4)
 
-            # Z-score spike detection
-            z_score = 0.0
-            if baseline_std > 0:
-                z_score = (current_score - baseline_mean) / baseline_std
+            is_spike = False
+            if baseline > 0:
+                is_spike = current_score >= (baseline * SPIKE_MULTIPLIER)
+            else:
+                # No history — flag if score is meaningful on its own
+                is_spike = current_score >= EXPANSION_THRESHOLD
 
-            is_spike = (
-                (z_score >= 1.5) or
-                (baseline_mean == 0 and current_score >= EXPANSION_THRESHOLD)
-            )
+            if is_spike or current_score >= EXPANSION_THRESHOLD:
+                top_signals = sorted(signals, key=lambda s: SIGNAL_WEIGHTS.get(s["signal_type"], 0), reverse=True)[:3]
+                alerts.append({
+                    "firm_id": firm_id,
+                    "firm_name": signals[0]["firm_name"],
+                    "department": department,
+                    "expansion_score": round(current_score, 2),
+                    "baseline_score": round(baseline, 2),
+                    "spike_ratio": round(current_score / baseline, 2) if baseline > 0 else None,
+                    "signal_count": len(signals),
+                    "signal_breakdown": self._breakdown(signals),
+                    "top_signals": top_signals,
+                    "is_spike": is_spike,
+                })
 
-            if not (is_spike or current_score >= EXPANSION_THRESHOLD):
-                continue
-
-            top_signals = sorted(
-                signals,
-                key=lambda s: SIGNAL_WEIGHTS.get(s["signal_type"], 0),
-                reverse=True
-            )[:3]
-
-            # Highest-confidence signal type present
-            top_tier = self._highest_tier(signals)
-
-            alerts.append({
-                "firm_id":          firm_id,
-                "firm_name":        signals[0]["firm_name"],
-                "department":       department,
-                "expansion_score":  round(current_score, 2),
-                "baseline_score":   round(baseline_mean, 2),
-                "baseline_std":     round(baseline_std, 2),
-                "z_score":          round(z_score, 2),
-                "spike_ratio":      round(current_score / baseline_mean, 2) if baseline_mean > 0 else None,
-                "signal_count":     len(signals),
-                "signal_breakdown": self._breakdown(signals),
-                "top_signals":      top_signals,
-                "top_tier":         top_tier,
-                "is_spike":         is_spike,
-            })
-
+        # Sort by expansion score descending
         alerts.sort(key=lambda a: a["expansion_score"], reverse=True)
         logger.info(f"Expansion alerts generated: {len(alerts)}")
         return alerts
@@ -127,17 +107,10 @@ class ExpansionAnalyzer:
     def _score_signals(self, signals: list[dict]) -> float:
         total = 0.0
         for s in signals:
-            weight    = SIGNAL_WEIGHTS.get(s["signal_type"], 0.5)
-            dept_score = min(s.get("department_score", 1.0), 20.0)
+            weight = SIGNAL_WEIGHTS.get(s["signal_type"], 0.5)
+            dept_score = min(s.get("department_score", 1.0), 20.0)  # cap outliers
             total += weight * (1 + dept_score * 0.1)
         return total
-
-    def _get_history(self, firm_id: str, department: str) -> list[float]:
-        all_scores = self.db.get_all_weekly_scores()
-        return [
-            r["score"] for r in all_scores
-            if r["firm_id"] == firm_id and r["department"] == department
-        ][-4:]  # last 4 weeks
 
     def _breakdown(self, signals: list[dict]) -> dict:
         counts = defaultdict(int)
@@ -145,23 +118,23 @@ class ExpansionAnalyzer:
             counts[s["signal_type"]] += 1
         return dict(counts)
 
-    def _highest_tier(self, signals: list[dict]) -> str:
-        tiers = [CONFIDENCE_TIER.get(s["signal_type"], "Tier 3") for s in signals]
-        if "Tier 1" in tiers:
-            return "Tier 1"
-        if "Tier 2" in tiers:
-            return "Tier 2"
-        return "Tier 3"
-
     def detect_website_changes(self, new_signals: list[dict]) -> list[dict]:
+        """Detect firms whose practice area pages have changed content."""
         changes = []
-        for snap in (s for s in new_signals if s["signal_type"] == "website_snapshot"):
+        snapshots = [s for s in new_signals if s["signal_type"] == "website_snapshot"]
+
+        for snap in snapshots:
             old_hash = self.db.get_last_website_hash(snap["firm_id"], snap["url"])
-            if old_hash and old_hash != snap["body"]:
+            new_hash = snap["body"]
+
+            if old_hash and old_hash != new_hash:
                 changes.append({
-                    "firm_id":   snap["firm_id"],
+                    "firm_id": snap["firm_id"],
                     "firm_name": snap["firm_name"],
-                    "url":       snap["url"],
-                    "message":   f"Practice area page content changed — {snap['url']}",
+                    "url": snap["url"],
+                    "change_type": "practice_page_updated",
+                    "message": f"Practice area page content changed at {snap['url']}",
                 })
+                logger.info(f"Website change detected: [{snap['firm_name']}] {snap['url']}")
+
         return changes
