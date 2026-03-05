@@ -2,16 +2,16 @@ name: Law Firm Expansion Tracker
 
 on:
   schedule:
-    - cron: "0 7 * * *"    # Daily collect, 7 AM UTC
-    - cron: "0 9 * * 0"    # Sunday digest, 9 AM UTC
+    - cron: "0 7 * * *"
+    - cron: "0 9 * * 0"
   workflow_dispatch:
     inputs:
       mode:
-        description: "collect | digest | dashboard | firm"
+        description: "collect | digest | dashboard"
         required: false
         default: "collect"
       firm:
-        description: "Single firm ID to test (e.g. osler)"
+        description: "Single firm ID (e.g. osler)"
         required: false
         default: ""
 
@@ -31,12 +31,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Python 3.11
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Cache pip
+      - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -46,17 +46,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore database
+      - name: Restore database from cache
         uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
           key: lawfirm-db-${{ github.run_id }}
           restore-keys: lawfirm-db-
 
-      - name: Ensure docs dir
+      - name: Ensure docs directory exists
         run: mkdir -p docs
 
-      - name: Daily collect
+      - name: Run — daily collect
         if: github.event_name == 'schedule' && github.event.schedule == '0 7 * * *'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -65,7 +65,7 @@ jobs:
           GITHUB_SERVER_URL:  ${{ github.server_url }}
         run: python main.py
 
-      - name: Sunday digest
+      - name: Run — Sunday digest
         if: github.event_name == 'schedule' && github.event.schedule == '0 9 * * 0'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -74,7 +74,7 @@ jobs:
           GITHUB_SERVER_URL:  ${{ github.server_url }}
         run: python main.py --digest
 
-      - name: Manual dispatch
+      - name: Run — manual dispatch
         if: github.event_name == 'workflow_dispatch'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
             *)         python main.py ;;
           esac
 
-      - name: Commit dashboard
+      - name: Commit dashboard to docs/
         if: always()
         run: |
           git config user.name  "github-actions[bot]"
@@ -98,7 +98,7 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: dashboard update [skip ci]"
           git push || true
 
-      - name: Upload log
+      - name: Upload tracker log
         uses: actions/upload-artifact@v4
         if: always()
         with:
