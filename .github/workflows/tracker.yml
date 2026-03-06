@@ -2,33 +2,44 @@ name: Law Firm Expansion Tracker
 
 on:
   schedule:
-    # Collect signals every day at 7:00 AM UTC
-    - cron: "0 7 * * *"
+    - cron: "0 7 * * *"       # daily collect — 07:00 UTC
+    - cron: "0 9 * * 0"       # Sunday digest  — 09:00 UTC
   workflow_dispatch:
     inputs:
       mode:
-        description: "Run mode: 'collect' (default) or 'digest'"
+        description: "Run mode"
         required: false
         default: "collect"
+        type: choice
+        options:
+          - collect
+          - digest
+          - evolve
       firm:
-        description: "Single firm ID to test (e.g. osler)"
+        description: "Single firm ID to test (e.g. osler) — leave blank for all"
         required: false
         default: ""
 
 jobs:
   track:
+    name: "Run tracker"
     runs-on: ubuntu-latest
-    timeout-minutes: 30     # was 90 — rate-limit fix means runs complete in <15 min
+    timeout-minutes: 55          # ← hard cap; GitHub default is 360 min
+                                 #   55 min is enough for 26 firms × 8 scrapers
+                                 #   at ~2s/request with polite delays
 
     steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── 2. Python ──────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # ── 3. Pip cache ───────────────────────────────────────────────────
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
@@ -36,28 +47,29 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: ${{ runner.os }}-pip-
 
+      # ── 4. Install deps ────────────────────────────────────────────────
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # ── 5. Restore DB  ─────────────────────────────────────────────────
+      #    The DB is the only stateful artifact across runs.
+      #    We use a rolling weekly cache key so it's never stale for more
+      #    than 7 days even if a save step fails.
       - name: Restore database from cache
         uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: lawfirm-db-${{ github.run_id }}
-          restore-keys: lawfirm-db-
-
-      - name: Run tracker — scheduled collect
-        if: github.event_name == 'schedule'
+          key: db-${{ runner.os }}-week-${{ env.WEEK_KEY }}
+          restore-keys: |
+            db-${{ runner.os }}-week-
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
-          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
-          GITHUB_RUN_ID:      ${{ github.run_id }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
-          SIGNAL_LOOKBACK_DAYS: "21"
-        run: python main.py
+          WEEK_KEY: ${{ steps.date.outputs.week }}
 
+      - name: Compute week key
+        id: date
+        run: echo "week=$(date +'%Y-W%V')" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Run tracker ────────────────────────────────────────────────
       - name: Run tracker — manual dispatch
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -67,19 +79,56 @@ jobs:
           CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
           GITHUB_RUN_ID:      ${{ github.run_id }}
           GITHUB_REPOSITORY:  ${{ github.repository }}
-          SIGNAL_LOOKBACK_DAYS: "21"
+          SIGNAL_LOOKBACK_DAYS: 21
         run: |
-          if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
+          if [ "${{ inputs.mode }}" = "digest" ]; then
             python main.py --digest
-          elif [ -n "${{ github.event.inputs.firm }}" ]; then
-            python main.py --firm ${{ github.event.inputs.firm }}
+          elif [ "${{ inputs.mode }}" = "evolve" ]; then
+            python main.py --evolve
+          elif [ -n "${{ inputs.firm }}" ]; then
+            python main.py --firm ${{ inputs.firm }}
           else
             python main.py
           fi
 
-      - name: Upload tracker log
-        uses: actions/upload-artifact@v4
+      - name: Run tracker — daily collect (07:00 UTC)
+        if: github.event_name == 'schedule' && contains(github.event.schedule, '0 7')
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          SIGNAL_LOOKBACK_DAYS: 21
+        run: python main.py
+
+      - name: Run tracker — Sunday digest (09:00 UTC)
+        if: github.event_name == 'schedule' && contains(github.event.schedule, '0 9')
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          SIGNAL_LOOKBACK_DAYS: 21
+        run: python main.py --digest
+
+      # ── 7. Save DB  ────────────────────────────────────────────────────
+      #    Always save DB — even if the scraper errored partway through,
+      #    we keep whatever signals were collected.
+      - name: Save database to cache
         if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: law_firm_tracker.db
+          key: db-${{ runner.os }}-week-${{ steps.date.outputs.week }}-${{ github.run_id }}
+
+      # ── 8. Upload log ──────────────────────────────────────────────────
+      - name: Upload tracker log
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: tracker-log-${{ github.run_id }}
           path: tracker.log
