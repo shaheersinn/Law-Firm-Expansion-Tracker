@@ -5,6 +5,7 @@ Run modes:
   python main.py            → full collection + analysis + weekly digest
   python main.py --digest   → send weekly digest from existing DB data only
   python main.py --firm osler → run for a single firm (testing)
+  python main.py --evolve   → run daily self-learning evolution cycle
 """
 
 import logging
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from config import Config
 from firms import FIRMS, FIRMS_BY_ID
 from database.db import Database
+from rss import RSSFeedScraper                      # ← was never imported; now wired in
 from scrapers.jobs import JobsScraper
 from scrapers.press import PressScraper
 from scrapers.publications import PublicationsScraper
@@ -60,6 +62,7 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     # ------------------------------------------------------------------ #
 
     scrapers = [
+        RSSFeedScraper(),          # RSS feeds — fast, lightweight, runs first
         JobsScraper(),
         PressScraper(),
         PublicationsScraper(),
@@ -87,14 +90,17 @@ def run(firms_to_run: list = None, digest_only: bool = False):
                         all_new_signals.append(signal)
                         new_count += 1
 
-                        # Save website hash for change detection
                         if signal["signal_type"] == "website_snapshot":
                             db.save_website_hash(firm["id"], signal["url"], signal["body"])
 
                 logger.info(f"  {scraper.name}: {new_count} new signal(s)")
 
             except Exception as e:
-                logger.error(f"  {scraper.name} failed for {firm['short']}: {e}", exc_info=True)
+                # Log with full traceback so we can debug, but keep going
+                logger.error(
+                    f"  {scraper.name} failed for {firm['short']}: {e}",
+                    exc_info=True,
+                )
 
     logger.info(f"\nTotal new signals collected: {len(all_new_signals)}")
 
@@ -102,12 +108,10 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     #  ANALYSIS PHASE
     # ------------------------------------------------------------------ #
 
-    # Get all signals for this week (including previously collected)
     weekly_signals = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
     website_changes = analyzer.detect_website_changes(all_new_signals)
 
-    # Save weekly scores to DB
     for alert in expansion_alerts:
         db.save_weekly_score(
             firm_id=alert["firm_id"],
@@ -119,10 +123,10 @@ def run(firms_to_run: list = None, digest_only: bool = False):
         )
 
     logger.info(f"Expansion alerts: {len(expansion_alerts)}")
-    logger.info(f"Website changes: {len(website_changes)}")
+    logger.info(f"Website changes:  {len(website_changes)}")
 
     # ------------------------------------------------------------------ #
-    #  NOTIFICATION — always send ONE combined digest after every run
+    #  NOTIFICATION — one combined digest per run
     # ------------------------------------------------------------------ #
 
     _send_digest(db, analyzer, notifier, new_signals=all_new_signals)
@@ -131,29 +135,51 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     logger.info("\nDone.\n")
 
 
-def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier, new_signals: list = None):
+def _send_digest(
+    db: Database,
+    analyzer: ExpansionAnalyzer,
+    notifier: Notifier,
+    new_signals: list = None,
+):
     weekly_signals = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
     website_changes = analyzer.detect_website_changes([])
 
-    # Filter out alerts already sent this week
     new_alerts = [
         a for a in expansion_alerts
         if not db.was_alert_sent(a["firm_id"], a["department"])
     ]
 
-    notifier.send_combined_digest(new_alerts, website_changes, new_signals=new_signals or [])
+    notifier.send_combined_digest(
+        new_alerts, website_changes, new_signals=new_signals or []
+    )
     for a in new_alerts:
         db.mark_alert_sent(a["firm_id"], a["department"], a["expansion_score"])
-    logger.info(f"Combined digest sent — {len(new_alerts)} expansion alert(s), {len(new_signals or [])} new signal(s)")
+
+    logger.info(
+        f"Combined digest sent — {len(new_alerts)} expansion alert(s), "
+        f"{len(new_signals or [])} new signal(s)"
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--digest",  action="store_true", help="Send digest from existing data without scraping")
+    parser.add_argument(
+        "--digest",
+        action="store_true",
+        help="Send digest from existing data without scraping",
+    )
     parser.add_argument("--dashboard", action="store_true", help="Generate dashboard")
-    parser.add_argument("--evolve",  action="store_true", help="Run daily self-learning evolution cycle")
-    parser.add_argument("--firm",    type=str, help="Run for a single firm ID only (e.g. osler)")
+    parser.add_argument(
+        "--evolve",
+        action="store_true",
+        help="Run daily self-learning evolution cycle",
+    )
+    parser.add_argument(
+        "--firm",
+        type=str,
+        help="Run for a single firm ID only (e.g. osler)",
+    )
     args = parser.parse_args()
 
     if args.evolve:
@@ -165,7 +191,10 @@ if __name__ == "__main__":
     if args.firm:
         firm = FIRMS_BY_ID.get(args.firm)
         if not firm:
-            logger.error(f"Unknown firm ID: {args.firm}. Available: {list(FIRMS_BY_ID.keys())}")
+            logger.error(
+                f"Unknown firm ID: {args.firm}. "
+                f"Available: {list(FIRMS_BY_ID.keys())}"
+            )
             sys.exit(1)
         target = [firm]
 
