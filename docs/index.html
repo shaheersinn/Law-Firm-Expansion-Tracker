@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Law Firm Expansion Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --card: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #8892a4; --accent: #6366f1;
+    --green: #10b981; --amber: #f59e0b; --red: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; font-weight: 700; color: var(--accent); }
+  header span { font-size: 12px; color: var(--muted); }
+  .grid { display: grid; gap: 16px; padding: 20px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 2fr 1fr; }
+  @media (max-width: 900px) { .grid-4, .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+  .stat-val { font-size: 32px; font-weight: 700; color: var(--text); }
+  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .alert-row { padding: 10px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .alert-row:last-child { border-bottom: none; }
+  .alert-firm { font-weight: 600; font-size: 13px; }
+  .alert-dept { font-size: 12px; color: var(--muted); }
+  .alert-score { font-weight: 700; color: var(--accent); font-size: 15px; white-space: nowrap; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; background: rgba(99,102,241,.15); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { color: var(--muted); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td a { color: var(--accent); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .sig-type { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: rgba(99,102,241,.12); color: var(--accent); white-space: nowrap; }
+  canvas { max-height: 220px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Law Firm Expansion Tracker</h1>
+  <span>Updated 2026-03-06 17:07 UTC</span>
+</header>
+
+<!-- KPI row -->
+<div class="grid grid-4" style="padding-bottom:0">
+  <div class="card">
+    <h2>Signals (30d)</h2>
+    <div class="stat-val">60</div>
+    <div class="stat-sub">across all firms</div>
+  </div>
+  <div class="card">
+    <h2>Active Alerts</h2>
+    <div class="stat-val">9</div>
+    <div class="stat-sub">this week</div>
+  </div>
+  <div class="card">
+    <h2>Firms Tracked</h2>
+    <div class="stat-val">3</div>
+    <div class="stat-sub">with signals this month</div>
+  </div>
+  <div class="card">
+    <h2>Signal Types</h2>
+    <div class="stat-val">8</div>
+    <div class="stat-sub">active categories</div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="grid grid-2" style="padding-bottom:0">
+  <div class="card">
+    <h2>Signals by Type (30d)</h2>
+    <canvas id='typeChart'></canvas>
+  </div>
+  <div class="card">
+    <h2>Signals by Firm (30d)</h2>
+    <canvas id='firmChart'></canvas>
+  </div>
+</div>
+
+<!-- Alerts + Signals table -->
+<div class="grid grid-3">
+  <div class="card">
+    <h2>Recent Signals</h2>
+    <table>
+    <thead><tr><th>Type</th><th>Signal</th><th>Date</th></tr></thead>
+    <tbody><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.blakes.com/insights/news" target="_blank">[Firm News] New Data Privacy & Cybersecurity practice launches</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.blakes.com/insights" target="_blank">[Blakes Insights] New Data Privacy & Cybersecurity practice launches</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.dwpv.com/en/insights/news" target="_blank">[Firm News] New Data Privacy & Cybersecurity practice launches</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.dwpv.com/insights" target="_blank">[Davies Insights] New Data Privacy & Cybersecurity practice launches</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-2" target="_blank">[Canadian Lawyer] Davies expands Real Estate with major lateral hire f…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-2" target="_blank">[Law Times] Davies expands Real Estate with major lateral hire from Fa…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-2" target="_blank">[Google News] Davies expands Real Estate with major lateral hire from …</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-2" target="_blank">[CBA] Davies expands Real Estate with major lateral hire from Fasken</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.blakes.com/insights/news" target="_blank">[Firm News] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.blakes.com/insights" target="_blank">[Blakes Insights] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Job posting</span></td>
+          <td><a href="https://www.dwpv.com/en/careers" target="_blank">[Careers] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.dwpv.com/en/insights/news" target="_blank">[Firm News] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.dwpv.com/insights" target="_blank">[Davies Insights] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Job posting</span></td>
+          <td><a href="https://www.blakes.com/careers" target="_blank">[Careers] Associate – Capital Markets (Bay Street)</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-2" target="_blank">[OBA] Davies expands Real Estate with major lateral hire from Fasken</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://www.lexpert.ca/news/" target="_blank">[Lexpert] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://www.lexpert.ca/news/" target="_blank">[Lexpert] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[Canadian Lawyer] Blakes welcomes Competition partner joining from McC…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[Law Times] Blakes welcomes Competition partner joining from McCarthy …</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[Google News] Blakes welcomes Competition partner joining from McCarth…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[Canadian Lawyer] Blakes welcomes Competition partner joining from McC…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[Law Times] Blakes welcomes Competition partner joining from McCarthy …</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Ranking</span></td>
+          <td><a href="https://www.canadianlawyermag.com/rankings/top-10-regional-firms/" target="_blank">[Canadian Lawyer] Davies mentioned in rankings</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[CBA] Blakes welcomes Competition partner joining from McCarthy Tetrau…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[CBA] Blakes welcomes Competition partner joining from McCarthy Tetrau…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Ranking</span></td>
+          <td><a href="https://www.canadianlawyermag.com/rankings/top-10-regional-firms/" target="_blank">[Canadian Lawyer] Blakes mentioned in rankings</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.blakes.com/insights/news" target="_blank">[Firm News] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.blakes.com/insights" target="_blank">[Blakes Insights] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Job posting</span></td>
+          <td><a href="https://www.dwpv.com/en/careers" target="_blank">[Careers] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Press release</span></td>
+          <td><a href="https://www.dwpv.com/en/insights/news" target="_blank">[Firm News] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.dwpv.com/insights" target="_blank">[Davies Insights] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Job posting</span></td>
+          <td><a href="https://www.blakes.com/careers" target="_blank">[Careers] Articling Student – Corporate Group</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[OBA] Blakes welcomes Competition partner joining from McCarthy Tetrau…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://canadianlawyermag.com/news/lateral-1" target="_blank">[OBA] Blakes welcomes Competition partner joining from McCarthy Tetrau…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.blakes.com/practice-areas/corporate" target="_blank">[Practice Page] Blakes — Corporate / M&A</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.blakes.com/practice-areas/capital-markets" target="_blank">[Practice Page] Blakes — Capital Markets</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.blakes.com/practice-areas/litigation" target="_blank">[Practice Page] Blakes — Litigation & Disputes</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.dwpv.com/practice-areas/corporate" target="_blank">[Practice Page] Davies — Corporate / M&A</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.dwpv.com/practice-areas/capital-markets" target="_blank">[Practice Page] Davies — Capital Markets</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Practice page</span></td>
+          <td><a href="https://www.dwpv.com/practice-areas/litigation" target="_blank">[Practice Page] Davies — Litigation & Disputes</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://www.blakes.com/insights/news" target="_blank">[Firm News] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Lateral hire</span></td>
+          <td><a href="https://www.dwpv.com/en/insights/news" target="_blank">[Firm News] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Ranking</span></td>
+          <td><a href="https://www.canadianlawyermag.com/rankings/top-10-regional-firms/" target="_blank">[Canadian Lawyer] Davies mentioned in rankings</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Ranking</span></td>
+          <td><a href="https://www.canadianlawyermag.com/rankings/top-10-regional-firms/" target="_blank">[Canadian Lawyer] Blakes mentioned in rankings</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://www.advocates.ca/news" target="_blank">[Advocates Society] Senior partner joins Corporate M&A group from riva…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://www.advocates.ca/news" target="_blank">[Advocates Society] Senior partner joins Corporate M&A group from riva…</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.blakes.com/insights" target="_blank">[Blakes Insights] Senior partner joins Corporate M&A group from rival …</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.lexology.com/library/search?q=Blakes&type=article&jurisdiction=canada" target="_blank">[Lexology] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">bar_mention</span></td>
+          <td><a href="https://lso.ca/news-events/news" target="_blank">[LSO] Senior partner joins Corporate M&A group from rival firm</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr><tr>
+          <td><span class="sig-type">Publication</span></td>
+          <td><a href="https://www.dwpv.com/insights" target="_blank">[Davies Insights] Senior partner joins Corporate M&A group from rival …</a></td>
+          <td style="color:var(--muted);white-space:nowrap">2026-03-06</td>
+        </tr></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>🔥 Top Expansion Alerts</h2>
+    
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Davies</div>
+            <div class="alert-dept">🤝 Corporate / M&A</div>
+          </div>
+          <div class="alert-score">42.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Blake,</div>
+            <div class="alert-dept">🤝 Corporate / M&A</div>
+          </div>
+          <div class="alert-score">42.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Davies</div>
+            <div class="alert-dept">🔒 Data Privacy & Cybersecurity</div>
+          </div>
+          <div class="alert-score">39.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Blake,</div>
+            <div class="alert-dept">🔒 Data Privacy & Cybersecurity</div>
+          </div>
+          <div class="alert-score">39.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Davies</div>
+            <div class="alert-dept">🏢 Real Estate</div>
+          </div>
+          <div class="alert-score">30.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Blake,</div>
+            <div class="alert-dept">🔍 Competition & Antitrust</div>
+          </div>
+          <div class="alert-score">30.0</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Davies</div>
+            <div class="alert-dept">📈 Capital Markets</div>
+          </div>
+          <div class="alert-score">22.5</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 Blake,</div>
+            <div class="alert-dept">📈 Capital Markets</div>
+          </div>
+          <div class="alert-score">22.5</div>
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-firm">🏛 McCarthy</div>
+            <div class="alert-dept">🔍 Competition & Antitrust</div>
+          </div>
+          <div class="alert-score">21.0</div>
+        </div>
+  </div>
+</div>
+
+<script>
+const byType = [{"type": "lateral_hire", "count": 12}, {"type": "bar_mention", "count": 12}, {"type": "publication", "count": 10}, {"type": "website_snapshot", "count": 6}, {"type": "press_release", "count": 6}, {"type": "practice_page", "count": 6}, {"type": "ranking", "count": 4}, {"type": "job_posting", "count": 4}];
+const byFirm = [{"firm": "Davies", "count": 28}, {"firm": "Blake,", "count": 28}, {"firm": "McCarthy", "count": 4}];
+
+const COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
+
+if (byType.length && document.getElementById('typeChart')) {
+  new Chart(document.getElementById('typeChart'), {
+    type: 'doughnut',
+    data: {
+      labels: byType.map(d => d.type.replace(/_/g,' ')),
+      datasets: [{ data: byType.map(d => d.count), backgroundColor: COLORS, borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { position: 'right', labels: { color: '#8892a4', boxWidth: 12, font: { size: 11 } } } }, cutout: '60%' }
+  });
+}
+
+if (byFirm.length && document.getElementById('firmChart')) {
+  new Chart(document.getElementById('firmChart'), {
+    type: 'bar',
+    data: {
+      labels: byFirm.map(d => d.firm),
+      datasets: [{ data: byFirm.map(d => d.count), backgroundColor: COLORS, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4' } },
+        y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 11 } } }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
