@@ -46,7 +46,9 @@ SIGNAL_WEIGHTS = {
 }
 
 # Minimum expansion score to flag as "expanding"
-EXPANSION_THRESHOLD = 4.0
+# 2.5 = single strong signal (lateral hire, bar leadership) fires on first run
+# Once a 4-week baseline builds, the SPIKE_MULTIPLIER threshold takes over
+EXPANSION_THRESHOLD = 2.5
 
 # Spike: current week score is at least this multiple of baseline average
 SPIKE_MULTIPLIER = 1.8
