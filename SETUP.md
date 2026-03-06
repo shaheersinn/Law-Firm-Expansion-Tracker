@@ -2,40 +2,52 @@
 
 ## Requirements
 - Python 3.11+
-- Two GitHub Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- `pip install -r requirements.txt`
 
-## Local
-
+## Local setup
 ```bash
-git clone https://github.com/YOUR_USERNAME/law-firm-tracker
-cd law-firm-tracker
-pip install -r requirements.txt
-cp .env.example .env   # fill in your Telegram credentials
-
-python main.py           # collect + analyse
-python main.py --evolve  # run learning evolution
-python main.py --digest  # send weekly digest
+cp .env.example .env
+# Edit .env — add TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID at minimum
+python main.py              # collect + send combined Telegram digest
+python main.py --evolve     # run learning cycle only
+python main.py --digest     # send digest from existing DB data
+python main.py --firm osler # single-firm test run
 ```
 
-## GitHub Actions
+## GitHub Secrets (Settings → Secrets and variables → Actions)
 
-The workflow (`.github/workflows/tracker.yml`) runs automatically:
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | From @BotFather |
+| `TELEGRAM_CHAT_ID` | ✅ | Your channel or chat ID |
+| `DASHBOARD_URL` | ✅ | URL to your deployed dashboard — appears in every Telegram alert |
+| `CANLII_API_KEY` | Optional | Free key from api.canlii.org — enables Canadian court signals |
 
-| Schedule | Action |
-|---|---|
-| Daily 07:00 UTC | Full signal collection |
-| Hourly (first 48 h) | Learning evolution — bootstrap phase, α = 0.40 |
-| Daily (after 48 h) | Learning evolution — stable phase, α = 0.15 |
-| Sunday 09:00 UTC | Weekly digest via Telegram |
+### Getting DASHBOARD_URL
+Set this to your GitHub Pages URL: `https://yourusername.github.io/law-firm-tracker/`  
+Enable Pages: repo Settings → Pages → Source: `main` branch, `/docs` folder.
 
-Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` under  
-**Settings → Secrets and variables → Actions**.
+## Telegram alert format
+Every run sends **one combined message** containing:
+- New signals collected (count + type breakdown)
+- Top expansion alerts ranked by score with source links
+- 📈 Dashboard link
+- 📋 GitHub Actions run log link
 
-## Learning system
+## Schedule
+- **Daily at 7 AM UTC** — full collect run across all firms
+- Digest is sent at the end of every collect run (not just Sundays)
 
-| Phase | Trigger | Alpha |
-|---|---|---|
-| Bootstrap | First 48 h | 0.40 |
-| Stable | After 48 h | 0.15 |
+## Signal lookback window
+By default, only signals from the **past 21 days** are accepted.  
+Older content is filtered out automatically.  
+Override with: `SIGNAL_LOOKBACK_DAYS=14` (or any number) in Secrets.
 
-Reports land in `docs/learning_report.json` and `docs/learning_history.jsonl`.
+## Bugs fixed in this version
+- Rate-limit waits capped at 5s (was 30s × multiple URLs = job timeout/cancellation)
+- CanLII scraper skips silently when no API key is set (was 401 spam on every firm)
+- `osgoode.yorku.ca` removed (persistent SSL cert failure)
+- `lawrecruits.com` removed (persistent connection timeout)
+- `ccca-caj.ca` removed (DNS dead — domain no longer resolves)
+- Per-signal Telegram blasts removed (was sending 10+ messages per run)
+- Date filter added: articles older than 21 days are dropped at parse time

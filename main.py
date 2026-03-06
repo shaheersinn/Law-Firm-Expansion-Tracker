@@ -71,7 +71,6 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     ]
 
     all_new_signals = []
-    instant_alerts_sent = set()
 
     for firm in target_firms:
         logger.info(f"\n{'─'*50}")
@@ -87,15 +86,6 @@ def run(firms_to_run: list = None, digest_only: bool = False):
                         db.save_signal(signal)
                         all_new_signals.append(signal)
                         new_count += 1
-
-                        # Instant alert for top-tier signals
-                        HIGH_VALUE_TYPES = {"lateral_hire", "bar_leadership", "ranking"}
-                        if (config.INSTANT_ALERT_ON_LATERAL
-                                and signal["signal_type"] in HIGH_VALUE_TYPES
-                                and signal["department"]
-                                and f"{firm['id']}_{signal['department']}" not in instant_alerts_sent):
-                            notifier.send_new_signal_alert(signal, signal["department"])
-                            instant_alerts_sent.add(f"{firm['id']}_{signal['department']}")
 
                         # Save website hash for change detection
                         if signal["signal_type"] == "website_snapshot":
@@ -132,25 +122,19 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     logger.info(f"Website changes: {len(website_changes)}")
 
     # ------------------------------------------------------------------ #
-    #  NOTIFICATION PHASE — only send digest on weekly run (Sundays)
+    #  NOTIFICATION — always send ONE combined digest after every run
     # ------------------------------------------------------------------ #
 
-    is_sunday = datetime.now(timezone.utc).weekday() == 6
-    force_digest = "--digest" in sys.argv
-
-    if is_sunday or force_digest:
-        _send_digest(db, analyzer, notifier)
-    else:
-        logger.info("Not Sunday — skipping weekly digest (instant alerts already sent above)")
+    _send_digest(db, analyzer, notifier, new_signals=all_new_signals)
 
     db.close()
     logger.info("\nDone.\n")
 
 
-def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier):
+def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier, new_signals: list = None):
     weekly_signals = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes = analyzer.detect_website_changes([])  # changes already logged
+    website_changes = analyzer.detect_website_changes([])
 
     # Filter out alerts already sent this week
     new_alerts = [
@@ -158,14 +142,10 @@ def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier):
         if not db.was_alert_sent(a["firm_id"], a["department"])
     ]
 
-    if new_alerts or website_changes:
-        notifier.send_weekly_digest(new_alerts, website_changes)
-        for a in new_alerts:
-            db.mark_alert_sent(a["firm_id"], a["department"], a["expansion_score"])
-        logger.info(f"Weekly digest sent: {len(new_alerts)} alert(s)")
-    else:
-        notifier.send_weekly_digest([], [])
-        logger.info("Weekly digest sent (no new signals this week)")
+    notifier.send_combined_digest(new_alerts, website_changes, new_signals=new_signals or [])
+    for a in new_alerts:
+        db.mark_alert_sent(a["firm_id"], a["department"], a["expansion_score"])
+    logger.info(f"Combined digest sent — {len(new_alerts)} expansion alert(s), {len(new_signals or [])} new signal(s)")
 
 
 if __name__ == "__main__":
