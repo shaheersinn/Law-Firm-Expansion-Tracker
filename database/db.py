@@ -11,7 +11,7 @@ Tables:
 import sqlite3
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("database.db")
 
@@ -155,7 +155,7 @@ class Database:
         Returns 0.0 if no history.
         """
         current_week = self._week_start()
-        cutoff = (datetime.utcnow() - timedelta(weeks=weeks)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).strftime("%Y-%m-%d")
         cur = self.conn.execute(
             """SELECT AVG(score) as avg_score
                FROM weekly_scores
@@ -224,7 +224,7 @@ class Database:
 
     def _week_start(self) -> str:
         """ISO Monday of current week as YYYY-MM-DD."""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         monday = today - timedelta(days=today.weekday())
         return monday.isoformat()
 
