@@ -2,12 +2,14 @@ name: Law Firm Expansion Tracker
 
 on:
   schedule:
-    - cron: "0 7 * * *"    # Daily collect, 7 AM UTC
-    - cron: "0 9 * * 0"    # Sunday digest, 9 AM UTC
+    # Collect signals every day at 7:00 AM UTC
+    - cron: "0 7 * * *"
+    # Send weekly digest every Sunday at 9:00 AM UTC
+    - cron: "0 9 * * 0"
   workflow_dispatch:
     inputs:
       mode:
-        description: "collect | digest | dashboard | firm"
+        description: "Run mode: 'collect' (default) or 'digest'"
         required: false
         default: "collect"
       firm:
@@ -15,28 +17,21 @@ on:
         required: false
         default: ""
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
 jobs:
   track:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Python 3.11
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Cache pip
+      - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -46,59 +41,42 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore database
+      - name: Restore database from cache
         uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
           key: lawfirm-db-${{ github.run_id }}
           restore-keys: lawfirm-db-
 
-      - name: Ensure docs dir
-        run: mkdir -p docs
-
-      - name: Daily collect
+      - name: Run tracker — collect mode
         if: github.event_name == 'schedule' && github.event.schedule == '0 7 * * *'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
-          GITHUB_SERVER_URL:  ${{ github.server_url }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Sunday digest
+      - name: Run tracker — weekly digest (Sunday)
         if: github.event_name == 'schedule' && github.event.schedule == '0 9 * * 0'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
-          GITHUB_SERVER_URL:  ${{ github.server_url }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py --digest
 
-      - name: Manual dispatch
+      - name: Run tracker — manual dispatch
         if: github.event_name == 'workflow_dispatch'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
-          GITHUB_SERVER_URL:  ${{ github.server_url }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          case "${{ github.event.inputs.mode }}" in
-            digest)    python main.py --digest ;;
-            dashboard) python main.py --dashboard ;;
-            firm)      python main.py --firm "${{ github.event.inputs.firm }}" ;;
-            *)         python main.py ;;
-          esac
+          if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
+            python main.py --digest
+          elif [ -n "${{ github.event.inputs.firm }}" ]; then
+            python main.py --firm ${{ github.event.inputs.firm }}
+          else
+            python main.py
+          fi
 
-      - name: Commit dashboard
-        if: always()
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/ || true
-          git diff --cached --quiet || git commit -m "chore: dashboard update [skip ci]"
-          git push || true
-
-      - name: Upload log
+      - name: Upload tracker log
         uses: actions/upload-artifact@v4
         if: always()
         with:
