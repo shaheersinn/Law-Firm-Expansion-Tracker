@@ -55,6 +55,20 @@ SPIKE_MULTIPLIER = 1.8
 class ExpansionAnalyzer:
     def __init__(self, db: Database):
         self.db = db
+        self._weights = self._load_weights()
+
+    def _load_weights(self) -> dict:
+        """Load learned signal-type weights from DB, fall back to static defaults."""
+        weights = dict(SIGNAL_WEIGHTS)
+        try:
+            cur = self.db.conn.execute(
+                "SELECT signal_type, weight FROM signal_type_weights"
+            )
+            for sig_type, w in cur.fetchall():
+                weights[sig_type] = w
+        except Exception:
+            pass  # table may not exist yet — use static defaults
+        return weights
 
     def analyze(self, new_signals: list[dict]) -> list[dict]:
         """
@@ -107,7 +121,7 @@ class ExpansionAnalyzer:
     def _score_signals(self, signals: list[dict]) -> float:
         total = 0.0
         for s in signals:
-            weight = SIGNAL_WEIGHTS.get(s["signal_type"], 0.5)
+            weight = self._weights.get(s["signal_type"], 0.5)
             dept_score = min(s.get("department_score", 1.0), 20.0)  # cap outliers
             total += weight * (1 + dept_score * 0.1)
         return total
