@@ -89,8 +89,8 @@ class Notifier:
         messages = []
 
         # Header
-        from datetime import datetime
-        week = datetime.utcnow().strftime("Week of %B %d, %Y")
+        from datetime import datetime, timezone
+        week = datetime.now(timezone.utc).strftime("Week of %B %d, %Y")
         header = (
             f"📊 <b>Law Firm Expansion Tracker</b>\n"
             f"<i>{week}</i>\n"
@@ -175,6 +175,8 @@ class Notifier:
         return ", ".join(parts)
 
     def _send(self, text: str):
+        if not self.config.TELEGRAM_BOT_TOKEN:
+            return
         if not self.config.TELEGRAM_BOT_TOKEN or not self.config.TELEGRAM_CHAT_ID:
             logger.warning("Telegram not configured")
             return
