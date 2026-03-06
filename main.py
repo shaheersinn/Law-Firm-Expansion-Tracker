@@ -10,7 +10,7 @@ Run modes:
 import logging
 import sys
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import Config
 from firms import FIRMS, FIRMS_BY_ID
@@ -135,7 +135,7 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     #  NOTIFICATION PHASE — only send digest on weekly run (Sundays)
     # ------------------------------------------------------------------ #
 
-    is_sunday = datetime.utcnow().weekday() == 6
+    is_sunday = datetime.now(timezone.utc).weekday() == 6
     force_digest = "--digest" in sys.argv
 
     if is_sunday or force_digest:
@@ -170,9 +170,16 @@ def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--digest", action="store_true", help="Send digest from existing data without scraping")
-    parser.add_argument("--firm", type=str, help="Run for a single firm ID only (e.g. osler)")
+    parser.add_argument("--digest",  action="store_true", help="Send digest from existing data without scraping")
+    parser.add_argument("--dashboard", action="store_true", help="Generate dashboard")
+    parser.add_argument("--evolve",  action="store_true", help="Run daily self-learning evolution cycle")
+    parser.add_argument("--firm",    type=str, help="Run for a single firm ID only (e.g. osler)")
     args = parser.parse_args()
+
+    if args.evolve:
+        from learning.evolution import run_evolution
+        run_evolution()
+        sys.exit(0)
 
     target = None
     if args.firm:
