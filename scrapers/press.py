@@ -125,7 +125,10 @@ class PressScraper(BaseScraper):
             else:
                 items = self._parse_html_articles(response.text, url)
 
-            for item_title, item_body, item_url in items:
+            for item_title, item_body, item_url, item_date in items:
+                # Skip articles older than SIGNAL_LOOKBACK_DAYS (stops 2019+ content)
+                if not self.is_recent(item_date):
+                    continue
                 combined = f"{item_title} {item_body}".lower()
                 if (firm["short"].lower() not in combined
                         and firm["name"].split()[0].lower() not in combined):
@@ -171,7 +174,10 @@ class PressScraper(BaseScraper):
             return signals
 
         items = self._parse_rss_items(response.text)
-        for item_title, item_body, item_url in items[:10]:
+        for item_title, item_body, item_url, item_date in items[:15]:
+            # Skip stale articles — Google News RSS sometimes returns multi-year-old items
+            if not self.is_recent(item_date):
+                continue
             combined = f"{item_title} {item_body}".lower()
             if (firm["short"].lower() not in combined
                     and firm["name"].split()[0].lower() not in combined):
@@ -206,21 +212,24 @@ class PressScraper(BaseScraper):
     #  Parsing helpers
     # ------------------------------------------------------------------ #
 
-    def _parse_rss_items(self, xml_text: str) -> list[tuple[str, str, str]]:
+    def _parse_rss_items(self, xml_text: str) -> list[tuple[str, str, str, str]]:
+        """Returns (title, body, url, pub_date) tuples."""
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(xml_text, features="xml")
         if not soup.find("item"):
             soup = BeautifulSoup(xml_text, "html.parser")
         results = []
-        for item in soup.find_all("item")[:20]:
-            title = item.find("title")
-            desc  = item.find("description")
-            link  = item.find("link")
-            t = title.get_text(strip=True) if title else ""
+        for item in soup.find_all("item")[:30]:
+            title   = item.find("title")
+            desc    = item.find("description")
+            link    = item.find("link")
+            pubdate = item.find("pubDate") or item.find("published") or item.find("updated")
+            t = title.get_text(strip=True)   if title   else ""
             b = BeautifulSoup(desc.get_text(strip=True) if desc else "", "html.parser").get_text()
-            u = link.get_text(strip=True) if link else ""
+            u = link.get_text(strip=True)    if link    else ""
+            d = pubdate.get_text(strip=True) if pubdate else ""
             if t:
-                results.append((t, b, u))
+                results.append((t, b, u, d))
         return results
 
     def _parse_html_articles(self, html: str, base_url: str) -> list[tuple[str, str, str]]:

@@ -21,6 +21,7 @@ Docs: https://api.canlii.org/v1/
 """
 
 import re
+import os
 import time
 from collections import defaultdict
 from scrapers.base import BaseScraper
@@ -29,6 +30,7 @@ from classifier.department import DepartmentClassifier
 classifier = DepartmentClassifier()
 
 CANLII_API_BASE = "https://api.canlii.org/v1"
+CANLII_API_KEY  = os.environ.get("CANLII_API_KEY", "").strip()
 
 # CanLII database codes for key Canadian courts and tribunals
 # Full list: https://www.canlii.org/en/#databases
@@ -93,6 +95,11 @@ class CanLIIScraper(BaseScraper):
     name = "CanLIIScraper"
 
     def fetch(self, firm: dict) -> list[dict]:
+        # CanLII API requires an API key — skip silently if not configured
+        # Get a free key at: https://api.canlii.org/
+        if not CANLII_API_KEY:
+            self.logger.debug("CanLII skipped — set CANLII_API_KEY env var to enable")
+            return []
         signals = []
         signals.extend(self._search_recent_cases(firm))
         return signals

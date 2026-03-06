@@ -41,14 +41,8 @@ LAW_SCHOOL_SOURCES = [
         "url": "https://ultravires.ca/jobs/",
         "secondary": "https://ultravires.ca/recruit/",
     },
-    {
-        "name": "Osgoode",
-        "url": "https://www.osgoode.yorku.ca/programs/jd/student-services/careers/",
-    },
-    {
-        "name": "lawrecruits.com",
-        "url": "https://www.lawrecruits.com/jobs/",
-    },
+    # osgoode.yorku.ca — REMOVED: persistent SSL cert verification failure
+    # lawrecruits.com  — REMOVED: persistent connection timeout
     {
         "name": "GreatStudentJobs Legal",
         "url": "https://www.greatstudentjobs.com/jobs/?area=law",

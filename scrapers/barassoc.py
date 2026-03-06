@@ -63,12 +63,7 @@ BAR_SOURCES = [
         "news_url": "https://www.advocates.ca/news",
         "weight": 2.5,
     },
-    {
-        "name": "CCCA",
-        "full_name": "Canadian Corporate Counsel Association",
-        "news_url": "https://ccca-caj.ca/news/",
-        "weight": 2.0,
-    },
+    # CCCA (ccca-caj.ca) — REMOVED: DNS resolution failure, domain appears dead
     {
         "name": "ACCA",
         "full_name": "Association of Corporate Counsel",

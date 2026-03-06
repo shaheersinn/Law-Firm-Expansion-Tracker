@@ -10,12 +10,17 @@ Never call requests directly from a scraper — always go through _get()
 so that delays, retries, and error-handling stay consistent.
 """
 
+import os
 import time
 import random
 import logging
 import hashlib
 import requests
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone, timedelta
+
+# Only accept signals published within this many days — filters out 2019+ stale content
+SIGNAL_LOOKBACK_DAYS = int(os.environ.get("SIGNAL_LOOKBACK_DAYS", "21"))
 
 logger = logging.getLogger("scrapers.base")
 
@@ -80,9 +85,11 @@ class BaseScraper(ABC):
                 if resp.status_code == 200:
                     return resp
                 elif resp.status_code == 429:
-                    wait = int(resp.headers.get("Retry-After", 30))
-                    self.logger.warning(f"Rate-limited on {url} — waiting {wait}s")
+                    # Cap at 5s — trusting Retry-After causes GitHub Actions job timeouts
+                    wait = min(int(resp.headers.get("Retry-After", 5)), 5)
+                    self.logger.warning(f"Rate-limited on {url} — skipping after {wait}s")
                     time.sleep(wait)
+                    return None  # abort immediately, don't burn remaining retries
                 elif resp.status_code in (403, 404):
                     self.logger.debug(f"HTTP {resp.status_code} for {url}")
                     return None
@@ -102,10 +109,35 @@ class BaseScraper(ABC):
     #  Signal factory
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def is_recent(date_str: str) -> bool:
+        """
+        Return True if the date string falls within SIGNAL_LOOKBACK_DAYS.
+        Accepts RFC 822 (RSS), ISO 8601, and loose date strings.
+        Returns True when date cannot be parsed (fail-open = don't drop uncertain items).
+        """
+        if not date_str:
+            return True
+        cutoff = datetime.now(timezone.utc) - timedelta(days=SIGNAL_LOOKBACK_DAYS)
+        for fmt in (
+            "%a, %d %b %Y %H:%M:%S %z",   # RFC 822  — used by Google News RSS
+            "%a, %d %b %Y %H:%M:%S %Z",   # RFC 822 with tz name
+            "%Y-%m-%dT%H:%M:%S%z",         # ISO 8601 with offset
+            "%Y-%m-%dT%H:%M:%SZ",          # ISO 8601 UTC
+            "%Y-%m-%d",                    # plain date
+            "%d %b %Y",                    # e.g. 12 Jan 2024
+            "%B %d, %Y",                   # e.g. January 12, 2024
+        ):
+            try:
+                dt = datetime.strptime(date_str.strip(), fmt)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt >= cutoff
+            except ValueError:
+                continue
+        return True  # unknown format — keep the item
+
     def _make_signal(
-        self,
-        *,
-        firm_id: str,
         firm_name: str,
         signal_type: str,
         title: str,
