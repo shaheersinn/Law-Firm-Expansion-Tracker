@@ -70,7 +70,7 @@ class WebsiteScraper(BaseScraper):
                 if any(p in a.get("href", "").lower() for p in
                        ["service", "practice", "expertise", "area", "group"])
                 and len(a.get_text(strip=True)) > 3
-            ][:30]
+            ][:5]   # cap sub-fetches per hub — 30 was causing GitHub Actions timeout
 
             for link in practice_links:
                 href = link.get("href", "")

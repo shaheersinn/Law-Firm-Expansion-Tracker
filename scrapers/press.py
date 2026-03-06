@@ -232,7 +232,7 @@ class PressScraper(BaseScraper):
                 results.append((t, b, u, d))
         return results
 
-    def _parse_html_articles(self, html: str, base_url: str) -> list[tuple[str, str, str]]:
+    def _parse_html_articles(self, html: str, base_url: str) -> list[tuple[str, str, str, str]]:
         soup = BeautifulSoup(html, "html.parser")
         results = []
         for tag in soup.find_all(
@@ -243,7 +243,7 @@ class PressScraper(BaseScraper):
             title_tag = tag.find(["h2", "h3", "a"])
             title = title_tag.get_text(strip=True) if title_tag else text[:80]
             if title:
-                results.append((title, text, base_url))
+                results.append((title, text, base_url, ""))  # no date from HTML
         return results
 
     def _deduplicate(self, signals: list[dict]) -> list[dict]:

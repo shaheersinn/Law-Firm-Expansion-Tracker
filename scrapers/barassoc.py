@@ -298,7 +298,7 @@ class BarAssociationScraper(BaseScraper):
             if "section" in a.get("href", "").lower() and len(a.get_text(strip=True)) > 3
         ]
 
-        for link in section_links[:20]:
+        for link in section_links[:5]:  # cap to avoid timeout
             section_name = link.get_text(strip=True)
             href = link.get("href", "")
             section_url = ("https://www.oba.org" + href) if href.startswith("/") else href
