@@ -99,7 +99,7 @@ class CanLIIScraper(BaseScraper):
         # Get a free key at: https://api.canlii.org/
         if not CANLII_API_KEY:
             self.logger.info(
-                f"[{firm["short"]}] CanLII skipped — CANLII_API_KEY not set. "
+                f"[{firm['short']}] CanLII skipped — CANLII_API_KEY not set. "
                 "Get a free key at https://api.canlii.org/"
             )
             return []
