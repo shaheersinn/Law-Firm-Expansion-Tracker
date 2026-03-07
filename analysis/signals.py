@@ -46,9 +46,13 @@ SIGNAL_WEIGHTS = {
 }
 
 # Minimum expansion score to flag as "expanding"
-# 2.5 = single strong signal (lateral hire, bar leadership) fires on first run
-# Once a 4-week baseline builds, the SPIKE_MULTIPLIER threshold takes over
-EXPANSION_THRESHOLD = 2.5
+# 3.5 = requires either 2 meaningful signals OR 1 high-weight signal (lateral hire)
+# A single practice_page (2.5*1.1=2.75) or publication (1.0*1.1=1.1) won't fire alone
+EXPANSION_THRESHOLD = 3.5
+
+# Minimum number of distinct signals in a (firm, dept) bucket before alerting
+# Prevents single-signal false positives (e.g. one practice page = not an expansion)
+MIN_SIGNALS_FOR_ALERT = 2
 
 # Spike: current week score is at least this multiple of baseline average
 SPIKE_MULTIPLIER = 1.8
@@ -100,7 +104,7 @@ class ExpansionAnalyzer:
                 # No history — flag if score is meaningful on its own
                 is_spike = current_score >= EXPANSION_THRESHOLD
 
-            if is_spike or current_score >= EXPANSION_THRESHOLD:
+            if (is_spike or current_score >= EXPANSION_THRESHOLD) and len(signals) >= MIN_SIGNALS_FOR_ALERT:
                 top_signals = sorted(signals, key=lambda s: SIGNAL_WEIGHTS.get(s["signal_type"], 0), reverse=True)[:3]
                 alerts.append({
                     "firm_id": firm_id,
@@ -136,21 +140,27 @@ class ExpansionAnalyzer:
 
     def detect_website_changes(self, new_signals: list[dict]) -> list[dict]:
         """Detect firms whose practice area pages have changed content."""
+        import hashlib
         changes = []
         snapshots = [s for s in new_signals if s["signal_type"] == "website_snapshot"]
 
         for snap in snapshots:
             old_hash = self.db.get_last_website_hash(snap["firm_id"], snap["url"])
-            new_hash = snap["body"]
+            # Hash raw body the same way save_website_hash does (sha-256)
+            # Previously compared sha-256 stored hash against raw body string → never matched
+            new_hash = hashlib.sha256((snap["body"] or "").encode()).hexdigest()
 
             if old_hash and old_hash != new_hash:
                 changes.append({
-                    "firm_id": snap["firm_id"],
-                    "firm_name": snap["firm_name"],
-                    "url": snap["url"],
+                    "firm_id":     snap["firm_id"],
+                    "firm_name":   snap["firm_name"],
+                    "url":         snap["url"],
                     "change_type": "practice_page_updated",
-                    "message": f"Practice area page content changed at {snap['url']}",
+                    "message":     f"Practice area page content changed at {snap['url']}",
                 })
                 logger.info(f"Website change detected: [{snap['firm_name']}] {snap['url']}")
+
+            # Always refresh the stored hash so the next run compares against today's content
+            self.db.save_website_hash(snap["firm_id"], snap["url"], snap["body"] or "")
 
         return changes
