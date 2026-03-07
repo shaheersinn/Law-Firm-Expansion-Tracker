@@ -9,8 +9,10 @@ Run modes:
 
 import logging
 import sys
+import os
 import argparse
 import concurrent.futures
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import Config
@@ -24,6 +26,12 @@ from scrapers.canlii import CanLIIScraper
 from scrapers.chambers import ChambersScraper
 from scrapers.lawschool import LawSchoolScraper
 from scrapers.barassoc import BarAssociationScraper
+from scrapers.rss_news import RSSNewsScraper
+from scrapers.sedar import SedarScraper
+from scrapers.lobbyist import LobbyistScraper
+from scrapers.conferences import ConferenceScraper
+from scrapers.govtrack import GovTrackScraper
+from scrapers.awards import AwardsScraper
 from analysis.signals import ExpansionAnalyzer
 from dashboard.generate import generate_dashboard
 from alerts.notifier import Notifier
@@ -66,25 +74,37 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     # ------------------------------------------------------------------ #
 
     scrapers = [
+        # ── Core (proven yield) ───────────────────────────────────────
         JobsScraper(),
         PressScraper(),
         PublicationsScraper(),
         WebsiteScraper(),
-        CanLIIScraper(),
-        ChambersScraper(),
         LawSchoolScraper(),
         BarAssociationScraper(),
+        # ── External validation ───────────────────────────────────────
+        RSSNewsScraper(),       # Canadian legal/business RSS feeds
+        AwardsScraper(),        # Rankings & award citations
+        ConferenceScraper(),    # Speaking & sponsorship appearances
+        GovTrackScraper(),      # Regulatory proceedings & consultations
+        LobbyistScraper(),      # Federal lobbyist registry
+        SedarScraper(),         # SEDAR+ securities filings (counsel mentions)
+        # ── Optional / API-gated ─────────────────────────────────────
+        CanLIIScraper(),        # Requires CANLII_API_KEY env var
+        ChambersScraper(),      # Chambers/Legal500 (JS-heavy, best-effort)
     ]
 
-    all_new_signals = []
+    all_new_signals: list[dict] = []
+    import threading
+    _lock = threading.Lock()
 
-    for firm in target_firms:
+    def _process_firm(firm: dict) -> list[dict]:
+        """Run all scrapers for one firm and persist new signals. Thread-safe."""
+        firm_signals: list[dict] = []
         logger.info(f"\n{'─'*50}")
         logger.info(f"Processing: {firm['name']}")
 
         for scraper in scrapers:
             try:
-                # Hard 90s timeout per scraper — prevents SSL/DNS hangs from stalling the run
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                     future = ex.submit(scraper.fetch, firm)
                     try:
@@ -95,19 +115,35 @@ def run(firms_to_run: list = None, digest_only: bool = False):
 
                 new_count = 0
                 for signal in signals:
-                    if db.is_new_signal(signal):
-                        db.save_signal(signal)
-                        all_new_signals.append(signal)
+                    with _lock:
+                        is_new = db.is_new_signal(signal)
+                    if is_new:
+                        with _lock:
+                            db.save_signal(signal)
+                            if signal["signal_type"] == "website_snapshot":
+                                db.save_website_hash(firm["id"], signal["url"], signal["body"])
+                        firm_signals.append(signal)
                         new_count += 1
-
-                        # Save website hash for change detection
-                        if signal["signal_type"] == "website_snapshot":
-                            db.save_website_hash(firm["id"], signal["url"], signal["body"])
 
                 logger.info(f"  {scraper.name}: {new_count} new signal(s)")
 
             except Exception as e:
                 logger.error(f"  {scraper.name} failed for {firm['short']}: {e}", exc_info=True)
+
+        return firm_signals
+
+    # Process firms with light parallelism (3 firms concurrently)
+    # Each firm's scrapers still run sequentially to respect rate limits per domain
+    FIRM_WORKERS = int(os.environ.get("FIRM_WORKERS", "3"))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=FIRM_WORKERS) as pool:
+        futures = {pool.submit(_process_firm, firm): firm for firm in target_firms}
+        for fut in concurrent.futures.as_completed(futures):
+            firm = futures[fut]
+            try:
+                firm_signals = fut.result()
+                all_new_signals.extend(firm_signals)
+            except Exception as e:
+                logger.error(f"Firm {firm['short']} processing crashed: {e}", exc_info=True)
 
     logger.info(f"\nTotal new signals collected: {len(all_new_signals)}")
 
@@ -115,10 +151,33 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     #  ANALYSIS PHASE
     # ------------------------------------------------------------------ #
 
+    from learning.confidence import ConfidenceScorer, FirmTrajectoryTracker
+
     # Get all signals for this week (including previously collected)
     weekly_signals = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
     website_changes = analyzer.detect_website_changes(all_new_signals)
+
+    # ── Enrich alerts with confidence scores + trajectory ─────────────
+    scorer     = ConfidenceScorer(db)
+    trajectory = FirmTrajectoryTracker(db)
+
+    enriched_alerts = []
+    # Group new signals by firm for confidence scoring
+    sigs_by_firm: dict[str, list] = defaultdict(list)
+    for s in all_new_signals:
+        sigs_by_firm[s["firm_id"]].append(s)
+
+    for alert in expansion_alerts:
+        contributing = sigs_by_firm.get(alert["firm_id"], [])
+        alert = scorer.score_alert(alert, contributing)
+        traj  = trajectory.get_trajectory(alert["firm_id"])
+        alert["trajectory"] = traj
+        enriched_alerts.append(alert)
+        # Update trajectory for next week
+        trajectory.update_week(alert["firm_id"], alert["expansion_score"])
+
+    expansion_alerts = enriched_alerts
 
     # Save weekly scores to DB
     for alert in expansion_alerts:
