@@ -1,153 +1,208 @@
 {
-  "generated_at": "2026-03-06T11:31:03.802878+00:00Z",
+  "generated_at": "2026-03-07T13:47:46.593396+00:00Z",
   "learning_schedule": {
     "phase": "bootstrap",
     "elapsed_hours": 0.0,
-    "run_count": 20,
-    "total_confirmed": 349,
-    "total_false_pos": 58,
+    "run_count": 11,
+    "total_confirmed": 1856,
+    "total_false_pos": 0,
     "alpha": 0.4
   },
   "feedback_this_run": {
-    "confirmed": 37,
+    "confirmed": 47,
     "false_positives": 0
   },
   "keyword_weights": {
-    "total": 30,
-    "avg_mult": 2.675,
-    "min_mult": 2.474,
-    "max_mult": 2.861,
-    "avg_confidence": 1.0,
-    "avg_momentum": 0.016
+    "total": 0,
+    "avg_mult": 1.0,
+    "min_mult": 1.0,
+    "max_mult": 1.0,
+    "avg_confidence": 0.0,
+    "avg_momentum": 0.0
   },
-  "keywords_updated": 33,
+  "keywords_updated": 0,
   "signal_type_weights": {
     "lateral_hire": 5.0,
-    "practice_page": 2.5,
-    "job_posting": 3.6591,
-    "press_release": 2.7892,
-    "publication": 1.7283,
+    "practice_page": 4.9849,
+    "job_posting": 3.9879,
+    "press_release": 2.9945,
+    "publication": 1.9963,
     "attorney_profile": 1.0,
-    "website_snapshot": 0.0,
+    "website_snapshot": 0.1,
     "bar_leadership": 5.0,
     "ranking": 5.0,
     "court_record": 2.5,
-    "recruit_posting": 2.0,
+    "recruit_posting": 3.9879,
     "bar_speaking": 1.5,
     "bar_sponsorship": 1.0,
     "bar_mention": 0.5
   },
   "discovered_candidates": [
     {
-      "dept": "Intellectual Property",
-      "ngram": "secret trademark",
-      "freq": 98
+      "dept": "Financial Services & Regulatory",
+      "ngram": "practice page",
+      "freq": 144
     },
     {
-      "dept": "Intellectual Property",
-      "ngram": "trade secret trademark",
-      "freq": 98
+      "dept": "Financial Services & Regulatory",
+      "ngram": "banking financial",
+      "freq": 128
     },
     {
-      "dept": "Capital Markets",
-      "ngram": "securities equity",
-      "freq": 95
+      "dept": "Financial Services & Regulatory",
+      "ngram": "banking financial services",
+      "freq": 128
     },
     {
-      "dept": "Tax",
-      "ngram": "pricing cra",
-      "freq": 93
+      "dept": "Financial Services & Regulatory",
+      "ngram": "blockchain digital",
+      "freq": 126
     },
     {
-      "dept": "Tax",
-      "ngram": "transfer pricing cra",
-      "freq": 93
+      "dept": "Financial Services & Regulatory",
+      "ngram": "assets regulatory",
+      "freq": 126
     },
     {
-      "dept": "Intellectual Property",
-      "ngram": "patent trade",
-      "freq": 86
+      "dept": "Financial Services & Regulatory",
+      "ngram": "regulatory outlook",
+      "freq": 126
     },
     {
-      "dept": "Intellectual Property",
-      "ngram": "patent trade secret",
-      "freq": 86
+      "dept": "Financial Services & Regulatory",
+      "ngram": "blockchain digital assets",
+      "freq": 126
     },
     {
-      "dept": "Tax",
-      "ngram": "cra tax",
-      "freq": 81
+      "dept": "Financial Services & Regulatory",
+      "ngram": "digital assets regulatory",
+      "freq": 126
     },
     {
-      "dept": "Litigation & Disputes",
-      "ngram": "trial appeal",
-      "freq": 77
-    },
-    {
-      "dept": "Intellectual Property",
-      "ngram": "secret copyright",
-      "freq": 76
-    },
-    {
-      "dept": "Intellectual Property",
-      "ngram": "trade secret copyright",
-      "freq": 76
-    },
-    {
-      "dept": "Capital Markets",
-      "ngram": "equity prospectus",
-      "freq": 76
-    },
-    {
-      "dept": "Tax",
-      "ngram": "gst cra",
-      "freq": 76
+      "dept": "Financial Services & Regulatory",
+      "ngram": "assets regulatory outlook",
+      "freq": 126
     },
     {
       "dept": "Litigation & Disputes",
-      "ngram": "appeal litigation",
-      "freq": 75
+      "ngram": "news publicationthe",
+      "freq": 111
     },
     {
-      "dept": "Tax",
-      "ngram": "cra transfer",
-      "freq": 75
+      "dept": "Litigation & Disputes",
+      "ngram": "publicationthe rise",
+      "freq": 111
     },
     {
-      "dept": "Tax",
-      "ngram": "cra transfer pricing",
-      "freq": 75
+      "dept": "Litigation & Disputes",
+      "ngram": "rise influencer",
+      "freq": 111
     },
     {
-      "dept": "Intellectual Property",
-      "ngram": "trademark copyright",
-      "freq": 74
+      "dept": "Litigation & Disputes",
+      "ngram": "influencer marketing",
+      "freq": 111
     },
     {
-      "dept": "Capital Markets",
-      "ngram": "equity ipo",
-      "freq": 74
+      "dept": "Litigation & Disputes",
+      "ngram": "marketing class",
+      "freq": 111
     },
     {
-      "dept": "Employment & Labour",
-      "ngram": "dismissal union",
-      "freq": 74
+      "dept": "Litigation & Disputes",
+      "ngram": "class actionscanada",
+      "freq": 111
     },
     {
-      "dept": "Employment & Labour",
-      "ngram": "wrongful dismissal union",
-      "freq": 74
+      "dept": "Litigation & Disputes",
+      "ngram": "news publicationthe rise",
+      "freq": 111
+    },
+    {
+      "dept": "Litigation & Disputes",
+      "ngram": "publicationthe rise influencer",
+      "freq": 111
+    },
+    {
+      "dept": "Litigation & Disputes",
+      "ngram": "rise influencer marketing",
+      "freq": 111
+    },
+    {
+      "dept": "Litigation & Disputes",
+      "ngram": "influencer marketing class",
+      "freq": 111
+    },
+    {
+      "dept": "Litigation & Disputes",
+      "ngram": "marketing class actionscanada",
+      "freq": 111
     }
   ],
   "healer_summary": {
-    "errors_found": 0,
-    "actions": []
+    "errors_found": 8,
+    "actions": [
+      "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay"
+    ]
   },
-  "healing_log_recent": [],
-  "anomalies": [
-    "Blake, Cassels & Graydon LLP: 21 signals today vs 3.3 avg",
-    "Davies Ward Phillips & Vineberg LLP: 19 signals today vs 3.0 avg",
-    "McCarthy T\u00e9trault LLP: 23 signals today vs 4.1 avg",
-    "Osler, Hoskin & Harcourt LLP: 30 signals today vs 4.4 avg"
-  ]
+  "healing_log_recent": [
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:46"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:45"
+    },
+    {
+      "error": "RATE_LIMIT",
+      "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
+      "at": "2026-03-07 13:47:45"
+    }
+  ],
+  "anomalies": []
 }
