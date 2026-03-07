@@ -1,45 +1,31 @@
 """
-Press Release & Lateral Hire Scraper
-======================================
-Lateral hire announcements are the single strongest expansion signal (3.0 weight).
-A firm paying to bring in a partner from a competitor = real financial commitment.
-
-What we track:
-  1. Firm's own news/press release pages
-  2. Canadian Lawyer magazine lateral moves section
-  3. Law Times lateral hire announcements
-  4. Lexpert news
-  5. Google News RSS for "[Firm] joins" / "[Firm] announces"
+PressScraper — scrapes firm news pages and legal press for announcements.
+Detects lateral hires with high precision using phrase matching.
 """
 
 import re
-from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
 classifier = DepartmentClassifier()
 
-LATERAL_PHRASES = [
-    "joins", "has joined", "lateral hire", "welcomes", "announces the addition",
-    "new partner", "new counsel", "has been appointed", "hired as",
-    "moves to", "joins from", "formerly of", "previously at",
+LATERAL_SIGNALS = [
+    r"joins\s+(?:the\s+firm|as\s+partner|as\s+counsel)",
+    r"(?:has\s+)?joined\s+(?:the\s+firm|as)",
+    r"welcomes\s+(?:new\s+)?(?:partner|counsel|associate)",
+    r"new\s+partner\s+(?:at|joins)",
+    r"lateral\s+hire",
+    r"expands\s+(?:its\s+)?(?:team|practice|group)",
+    r"appointed\s+(?:as\s+)?(?:partner|counsel)",
+    r"named\s+(?:as\s+)?(?:partner|head|chair)",
+    r"recruited?\s+(?:to|as)",
 ]
+_LATERAL_RE = [re.compile(p, re.IGNORECASE) for p in LATERAL_SIGNALS]
 
-PRESS_SOURCES = [
-    {
-        "name": "Canadian Lawyer",
-        "url": "https://www.canadianlawyermag.com/news/general/",
-        "rss": "https://www.canadianlawyermag.com/rss.xml",
-    },
-    {
-        "name": "Law Times",
-        "url": "https://www.lawtimesnews.com/news/",
-        "rss": "https://www.lawtimesnews.com/rss.xml",
-    },
-    {
-        "name": "Lexpert",
-        "url": "https://www.lexpert.ca/news/",
-    },
+EXTERNAL_SOURCES = [
+    {"name": "Canadian Lawyer",    "url": "https://www.canadianlawyermag.com/news/",   "weight": 2.0},
+    {"name": "Law Times",          "url": "https://www.lawtimesnews.com/news/",         "weight": 1.8},
+    {"name": "The Lawyer's Daily", "url": "https://www.thelawyersdaily.ca/articles/",   "weight": 2.0},
 ]
 
 
@@ -49,209 +35,98 @@ class PressScraper(BaseScraper):
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
         signals.extend(self._scrape_firm_news(firm))
-        signals.extend(self._scrape_trade_press(firm))
-        signals.extend(self._scrape_google_news_rss(firm))
-        return self._deduplicate(signals)
-
-    # ------------------------------------------------------------------ #
-    #  Firm's own news page
-    # ------------------------------------------------------------------ #
+        signals.extend(self._scrape_external(firm))
+        return signals
 
     def _scrape_firm_news(self, firm: dict) -> list[dict]:
+        url = firm.get("news_url", "")
+        if not url:
+            return []
+
+        soup = self.get_soup(url)
+        if not soup:
+            return []
+
         signals = []
-        news_url = firm.get("news_url") or firm["website"].rstrip("/") + "/news"
-        response = self._get(news_url)
-        if not response:
-            return signals
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        articles = soup.find_all(
-            ["article", "div", "li"],
-            class_=re.compile(r"news|post|article|item|insight|publication", re.I)
-        )[:25]
-
-        for art in articles:
-            text = art.get_text(separator=" ", strip=True)
-            text_lower = text.lower()
-
-            signal_type = "press_release"
-            is_lateral = any(p in text_lower for p in LATERAL_PHRASES)
-            if is_lateral:
-                signal_type = "lateral_hire"
-
-            title_tag = art.find(["h2", "h3", "h4", "a"])
-            title = title_tag.get_text(strip=True) if title_tag else text[:120]
-            if not title:
+        for tag in soup.find_all(["article", "div"], class_=re.compile(r"news|press|article|post", re.I))[:30]:
+            title_tag = tag.find(["h2", "h3", "h4", "a"])
+            if not title_tag:
+                continue
+            title = title_tag.get_text(" ", strip=True)
+            if len(title) < 20:
                 continue
 
-            classifications = classifier.classify(text, top_n=1)
-            if not classifications:
-                continue
+            body_tag = tag.find("p")
+            body = body_tag.get_text(" ", strip=True) if body_tag else ""
+            full = f"{title} {body}"
 
-            cls = classifications[0]
-            boost = 1.5 if is_lateral else 1.0
+            link_tag = tag.find("a", href=True)
+            link = ""
+            if link_tag:
+                href = link_tag["href"]
+                link = href if href.startswith("http") else firm["website"] + href
+
+            is_lateral = any(r.search(full) for r in _LATERAL_RE)
+            sig_type = "lateral_hire" if is_lateral else "press_release"
+            weight_mult = 3.0 if is_lateral else 1.5
+
+            cls = classifier.top_department(full)
+            if not cls:
+                continue
 
             signals.append(self._make_signal(
                 firm_id=firm["id"],
                 firm_name=firm["name"],
-                signal_type=signal_type,
-                title=f"[Firm News] {title}",
-                body=text[:600],
-                url=news_url,
+                signal_type=sig_type,
+                title=title[:200],
+                body=body[:600],
+                url=link or url,
                 department=cls["department"],
-                department_score=cls["score"] * boost,
+                department_score=cls["score"] * weight_mult,
                 matched_keywords=cls["matched_keywords"],
             ))
 
-        self.logger.info(f"[{firm['short']}] Firm news: {len(signals)} signal(s)")
-        return signals
+        return signals[:15]
 
-    # ------------------------------------------------------------------ #
-    #  Trade press sources
-    # ------------------------------------------------------------------ #
-
-    def _scrape_trade_press(self, firm: dict) -> list[dict]:
+    def _scrape_external(self, firm: dict) -> list[dict]:
         signals = []
-        for source in PRESS_SOURCES:
-            url = source.get("rss") or source["url"]
-            response = self._get(url)
-            if not response:
+        name_variants = [firm["short"], firm["name"].split()[0]]
+
+        for source in EXTERNAL_SOURCES:
+            soup = self.get_soup(source["url"])
+            if not soup:
                 continue
 
-            # Try RSS first
-            is_rss = "rss" in url or "xml" in response.headers.get("content-type", "")
-            if is_rss:
-                items = self._parse_rss_items(response.text)
-            else:
-                items = self._parse_html_articles(response.text, url)
-
-            for item_title, item_body, item_url, item_date in items:
-                # Skip articles older than SIGNAL_LOOKBACK_DAYS (stops 2019+ content)
-                if not self.is_recent(item_date):
+            for tag in soup.find_all(["article", "h2", "h3"], limit=40):
+                text = tag.get_text(" ", strip=True)
+                if not any(n.lower() in text.lower() for n in name_variants):
                     continue
-                combined = f"{item_title} {item_body}".lower()
-                if (firm["short"].lower() not in combined
-                        and firm["name"].split()[0].lower() not in combined):
+                if len(text) < 30:
                     continue
 
-                is_lateral = any(p in combined for p in LATERAL_PHRASES)
-                signal_type = "lateral_hire" if is_lateral else "press_release"
-                boost = 2.0 if is_lateral else 1.0
+                link_tag = tag.find("a", href=True) if tag.name != "a" else tag
+                link = ""
+                if link_tag:
+                    href = link_tag.get("href", "")
+                    link = href if href.startswith("http") else "https://www.canadianlawyermag.com" + href
 
-                full_text = f"{item_title} {item_body}"
-                classifications = classifier.classify(full_text, top_n=1)
-                if not classifications:
+                is_lateral = any(r.search(text) for r in _LATERAL_RE)
+                sig_type = "lateral_hire" if is_lateral else "press_release"
+                weight_mult = 3.0 if is_lateral else 1.5
+
+                cls = classifier.top_department(text)
+                if not cls:
                     continue
 
-                cls = classifications[0]
                 signals.append(self._make_signal(
                     firm_id=firm["id"],
                     firm_name=firm["name"],
-                    signal_type=signal_type,
-                    title=f"[{source['name']}] {item_title}",
-                    body=item_body[:600],
-                    url=item_url or source["url"],
+                    signal_type=sig_type,
+                    title=f"[{source['name']}] {text[:160]}",
+                    url=link or source["url"],
                     department=cls["department"],
-                    department_score=cls["score"] * boost,
+                    department_score=cls["score"] * source["weight"] * weight_mult,
                     matched_keywords=cls["matched_keywords"],
                 ))
 
-        self.logger.info(f"[{firm['short']}] Trade press: {len(signals)} signal(s)")
-        return signals
-
-    # ------------------------------------------------------------------ #
-    #  Google News RSS
-    # ------------------------------------------------------------------ #
-
-    def _scrape_google_news_rss(self, firm: dict) -> list[dict]:
-        signals = []
-        query = f'"{firm["short"]}" joins lawyer'
-        encoded = query.replace(" ", "+").replace('"', "%22")
-        url = f"https://news.google.com/rss/search?q={encoded}&hl=en-CA&gl=CA&ceid=CA:en"
-
-        response = self._get(url)
-        if not response:
-            return signals
-
-        items = self._parse_rss_items(response.text)
-        for item_title, item_body, item_url, item_date in items[:15]:
-            # Skip stale articles — Google News RSS sometimes returns multi-year-old items
-            if not self.is_recent(item_date):
-                continue
-            combined = f"{item_title} {item_body}".lower()
-            if (firm["short"].lower() not in combined
-                    and firm["name"].split()[0].lower() not in combined):
-                continue
-
-            is_lateral = any(p in combined for p in LATERAL_PHRASES)
-            signal_type = "lateral_hire" if is_lateral else "press_release"
-            boost = 2.0 if is_lateral else 1.0
-
-            full_text = f"{item_title} {item_body}"
-            classifications = classifier.classify(full_text, top_n=1)
-            if not classifications:
-                continue
-
-            cls = classifications[0]
-            signals.append(self._make_signal(
-                firm_id=firm["id"],
-                firm_name=firm["name"],
-                signal_type=signal_type,
-                title=f"[Google News] {item_title}",
-                body=item_body[:600],
-                url=item_url,
-                department=cls["department"],
-                department_score=cls["score"] * boost,
-                matched_keywords=cls["matched_keywords"],
-            ))
-
-        self.logger.info(f"[{firm['short']}] Google News: {len(signals)} signal(s)")
-        return signals
-
-    # ------------------------------------------------------------------ #
-    #  Parsing helpers
-    # ------------------------------------------------------------------ #
-
-    def _parse_rss_items(self, xml_text: str) -> list[tuple[str, str, str, str]]:
-        """Returns (title, body, url, pub_date) tuples."""
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(xml_text, features="xml")
-        if not soup.find("item"):
-            soup = BeautifulSoup(xml_text, "html.parser")
-        results = []
-        for item in soup.find_all("item")[:30]:
-            title   = item.find("title")
-            desc    = item.find("description")
-            link    = item.find("link")
-            pubdate = item.find("pubDate") or item.find("published") or item.find("updated")
-            t = title.get_text(strip=True)   if title   else ""
-            b = BeautifulSoup(desc.get_text(strip=True) if desc else "", "html.parser").get_text()
-            u = link.get_text(strip=True)    if link    else ""
-            d = pubdate.get_text(strip=True) if pubdate else ""
-            if t:
-                results.append((t, b, u, d))
-        return results
-
-    def _parse_html_articles(self, html: str, base_url: str) -> list[tuple[str, str, str, str]]:
-        soup = BeautifulSoup(html, "html.parser")
-        results = []
-        for tag in soup.find_all(
-            ["article", "div", "li"],
-            class_=re.compile(r"news|article|post|item", re.I)
-        )[:20]:
-            text = tag.get_text(separator=" ", strip=True)
-            title_tag = tag.find(["h2", "h3", "a"])
-            title = title_tag.get_text(strip=True) if title_tag else text[:80]
-            if title:
-                results.append((title, text, base_url, ""))  # no date from HTML
-        return results
-
-    def _deduplicate(self, signals: list[dict]) -> list[dict]:
-        seen = set()
-        result = []
-        for s in signals:
-            key = s["title"].lower()[:80]
-            if key not in seen:
-                seen.add(key)
-                result.append(s)
-        return result
+        return signals[:10]

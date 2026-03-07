@@ -1,42 +1,15 @@
 """
-Publications & Thought Leadership Scraper
-===========================================
-When lawyers publish articles, client alerts, or blog posts about an area,
-it precedes actual client work by 3-6 months — making it an early-warning
-leading indicator.
-
-What we track:
-  1. Firm's own insights/publications page
-  2. SSRN (legal academic papers with firm affiliation)
-  3. Lexology (law firm client alerts aggregator)
-  4. Mondaq (legal knowledge management platform)
-
-Signal weight: 1.0 (lowest tier — needs corroboration)
+PublicationsScraper — scrapes firm insights pages, Lexology, Mondaq.
+High volume of publications in a department signals practice investment.
 """
 
-import re
-from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
 classifier = DepartmentClassifier()
 
-PUB_SOURCES = [
-    {
-        "name": "Lexology",
-        "search_url": "https://www.lexology.com/library/search?q={firm}&type=article&jurisdiction=canada",
-    },
-    {
-        "name": "Mondaq",
-        "search_url": "https://www.mondaq.com/canada/search?q={firm}&tags=legal",
-    },
-]
-
-# Publication recency signals
-RECENT_PHRASES = [
-    "today", "this week", "this month", "recently", "new", "latest",
-    "just published", "hot off the press", "alert",
-]
+LEXOLOGY_URL  = "https://www.lexology.com/library/results.aspx?q={query}&jurisdiction=Canada&sort=3"
+MONDAQ_URL    = "https://www.mondaq.com/search/{query}?country=canada"
 
 
 class PublicationsScraper(BaseScraper):
@@ -46,126 +19,86 @@ class PublicationsScraper(BaseScraper):
         signals = []
         signals.extend(self._scrape_firm_insights(firm))
         signals.extend(self._scrape_lexology(firm))
-        return self._deduplicate(signals)
-
-    # ------------------------------------------------------------------ #
-    #  Firm's own insights/publications page
-    # ------------------------------------------------------------------ #
-
-    def _scrape_firm_insights(self, firm: dict) -> list[dict]:
-        signals = []
-        base = firm["website"].rstrip("/")
-
-        insight_paths = [
-            "/insights", "/publications", "/knowledge", "/resources",
-            "/en/insights", "/en-ca/insights", "/en/resources",
-            "/our-thinking", "/thought-leadership",
-        ]
-
-        for path in insight_paths:
-            url = base + path
-            response = self._get(url)
-            if not response or len(response.text) < 200:
-                continue
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            articles = soup.find_all(
-                ["article", "div", "li"],
-                class_=re.compile(r"post|article|item|insight|publication|card|result", re.I)
-            )[:30]
-
-            for art in articles:
-                text = art.get_text(separator=" ", strip=True)
-                if len(text) < 30:
-                    continue
-
-                title_tag = art.find(["h2", "h3", "h4", "a"])
-                title = title_tag.get_text(strip=True) if title_tag else text[:100]
-                if not title or len(title) < 10:
-                    continue
-
-                classifications = classifier.classify(text, top_n=1)
-                if not classifications:
-                    continue
-
-                cls = classifications[0]
-                if cls["score"] < 1.0:
-                    continue
-
-                signals.append(self._make_signal(
-                    firm_id=firm["id"],
-                    firm_name=firm["name"],
-                    signal_type="publication",
-                    title=f"[{firm['short']} Insights] {title}",
-                    body=text[:600],
-                    url=url,
-                    department=cls["department"],
-                    department_score=cls["score"],
-                    matched_keywords=cls["matched_keywords"],
-                ))
-
-            if signals:
-                break   # found working insights path
-
-        self.logger.info(f"[{firm['short']}] Firm insights: {len(signals)} signal(s)")
         return signals
 
-    # ------------------------------------------------------------------ #
-    #  Lexology
-    # ------------------------------------------------------------------ #
+    def _scrape_firm_insights(self, firm: dict) -> list[dict]:
+        url = firm.get("news_url", "")
+        if not url:
+            return []
 
-    def _scrape_lexology(self, firm: dict) -> list[dict]:
+        soup = self.get_soup(url)
+        if not soup:
+            return []
+
         signals = []
-        firm_q = firm["short"].replace(" ", "+").replace("&", "and")
-        url = f"https://www.lexology.com/library/search?q={firm_q}&type=article&jurisdiction=canada"
-
-        response = self._get(url)
-        if not response:
-            return signals
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        for card in soup.find_all(
-            ["div", "article", "li"],
-            class_=re.compile(r"article|result|item|post|entry", re.I)
-        )[:20]:
-            text = card.get_text(separator=" ", strip=True)
-            text_lower = text.lower()
-
-            if (firm["short"].lower() not in text_lower
-                    and firm["name"].split()[0].lower() not in text_lower):
+        for tag in soup.find_all(["a", "h3", "h4"], limit=60):
+            text = tag.get_text(" ", strip=True)
+            if len(text) < 25 or len(text) > 250:
                 continue
 
-            title_tag = card.find(["h2", "h3", "a"])
-            title = title_tag.get_text(strip=True) if title_tag else text[:100]
-
-            classifications = classifier.classify(text, top_n=1)
-            if not classifications:
+            # Must look like an article title (has a practice-area keyword)
+            cls = classifier.top_department(text)
+            if not cls or cls["score"] < 1.5:
                 continue
 
-            cls = classifications[0]
+            link = ""
+            if tag.name == "a":
+                href = tag.get("href", "")
+                link = href if href.startswith("http") else firm["website"] + href
+
             signals.append(self._make_signal(
                 firm_id=firm["id"],
                 firm_name=firm["name"],
                 signal_type="publication",
-                title=f"[Lexology] {title}",
-                body=text[:500],
-                url=url,
+                title=text[:200],
+                url=link or url,
                 department=cls["department"],
-                department_score=cls["score"],
+                department_score=cls["score"] * 1.0,
                 matched_keywords=cls["matched_keywords"],
             ))
 
-        self.logger.info(f"[{firm['short']}] Lexology: {len(signals)} signal(s)")
-        return signals
-
-    def _deduplicate(self, signals: list[dict]) -> list[dict]:
+        # Deduplicate
         seen = set()
-        result = []
+        unique = []
         for s in signals:
-            key = s["title"].lower()[:80]
-            if key not in seen:
-                seen.add(key)
-                result.append(s)
-        return result
+            if s["title"] not in seen:
+                seen.add(s["title"])
+                unique.append(s)
+
+        return unique[:12]
+
+    def _scrape_lexology(self, firm: dict) -> list[dict]:
+        query = firm["short"].replace(" ", "+")
+        url = LEXOLOGY_URL.format(query=query)
+        soup = self.get_soup(url)
+        if not soup:
+            return []
+
+        signals = []
+        for article in soup.find_all("div", class_=lambda c: c and "article" in str(c).lower())[:10]:
+            title_tag = article.find(["h2", "h3", "a"])
+            if not title_tag:
+                continue
+            title = title_tag.get_text(" ", strip=True)
+            if len(title) < 20:
+                continue
+
+            cls = classifier.top_department(title)
+            if not cls:
+                continue
+
+            link_tag = article.find("a", href=True)
+            link = link_tag["href"] if link_tag else url
+
+            signals.append(self._make_signal(
+                firm_id=firm["id"],
+                firm_name=firm["name"],
+                signal_type="publication",
+                title=f"[Lexology] {title[:160]}",
+                url=link,
+                department=cls["department"],
+                department_score=cls["score"] * 1.5,
+                matched_keywords=cls["matched_keywords"],
+            ))
+
+        return signals
