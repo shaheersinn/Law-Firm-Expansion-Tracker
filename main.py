@@ -27,6 +27,7 @@ from scrapers.barassoc import BarAssociationScraper
 from analysis.signals import ExpansionAnalyzer
 from dashboard.generate import generate_dashboard
 from alerts.notifier import Notifier
+import scrapers.base as _scraper_base
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,9 @@ logger = logging.getLogger("main")
 
 
 def run(firms_to_run: list = None, digest_only: bool = False):
+    # Reset per-run domain block state (429s and 500s from previous test runs don't carry over)
+    _scraper_base._DOMAIN_RATE_LIMITED.clear()
+    _scraper_base._DOMAIN_500_URLS.clear()
     logger.info("=" * 70)
     logger.info(f"Law Firm Expansion Tracker — {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
     logger.info("=" * 70)
@@ -136,7 +140,8 @@ def run(firms_to_run: list = None, digest_only: bool = False):
 
     _send_digest(db, analyzer, notifier,
                  new_signals=all_new_signals,
-                 precomputed_alerts=expansion_alerts)
+                 precomputed_alerts=expansion_alerts,
+                 precomputed_changes=website_changes)
 
     db.close()
     # Auto-generate dashboard after every run so GitHub Pages stays current
@@ -148,14 +153,18 @@ def run(firms_to_run: list = None, digest_only: bool = False):
 
 
 def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier,
-                  new_signals: list = None, precomputed_alerts: list = None):
-    # Use pre-computed alerts when available (avoids double analysis)
+                  new_signals: list = None, precomputed_alerts: list = None,
+                  precomputed_changes: list = None):
+    # Use pre-computed results when available (avoids double analysis + double change detection)
     if precomputed_alerts is not None:
         expansion_alerts = precomputed_alerts
     else:
         weekly_signals = db.get_signals_this_week()
         expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes = analyzer.detect_website_changes(new_signals or [])
+    if precomputed_changes is not None:
+        website_changes = precomputed_changes
+    else:
+        website_changes = analyzer.detect_website_changes(new_signals or [])
 
     # Filter out alerts already sent this week
     new_alerts = [
