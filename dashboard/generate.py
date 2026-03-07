@@ -80,13 +80,17 @@ def _load_data(db_path: str) -> dict:
     """)
     scores = [dict(r) for r in cur.fetchall()]
 
-    # Top alerts this week
+    # Total alert count this week (separate from display cap)
+    cur.execute("SELECT COUNT(*) FROM weekly_scores WHERE week_start >= ?", (cutoff_7d,))
+    total_alert_count = (cur.fetchone() or [0])[0]
+
+    # Top alerts this week — display top 30 sorted by score
     cur.execute("""
         SELECT firm_id, firm_name, department, score, signal_count, breakdown
         FROM weekly_scores
         WHERE week_start >= ?
         ORDER BY score DESC
-        LIMIT 20
+        LIMIT 30
     """, (cutoff_7d,))
     top_alerts = [dict(r) for r in cur.fetchall()]
 
@@ -115,7 +119,7 @@ def _load_data(db_path: str) -> dict:
         "by_firm": by_firm,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "signal_count_30d": len(signals),
-        "alert_count_7d": len(top_alerts),
+        "alert_count_7d": total_alert_count,
     }
 
 
