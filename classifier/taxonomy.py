@@ -1,223 +1,198 @@
 """
-Practice area taxonomy — 17 departments with keyword signals.
-Edit keywords here to tune classification accuracy.
-
-Each department has:
-  keywords   — single-word signals (weight 1.0 each)
-  phrases    — multi-word signals (weight 2.5x each)
+Taxonomy — keywords and phrases for 17 practice departments.
+Phrases (multi-word) get a 2.5× boost over single keywords.
 """
 
-TAXONOMY = {
-    "Corporate / M&A": {
+DEPARTMENTS = {
+    "Corporate/M&A": {
         "keywords": [
-            "acquisition", "merger", "takeover", "buyout", "divestiture",
-            "transaction", "corporate", "shareholder", "governance", "proxy",
-            "due diligence", "closing", "target", "acquiror", "amalgamation",
-            "plan of arrangement", "deal", "M&A",
+            "merger", "acquisition", "m&a", "corporate", "transaction",
+            "deal", "takeover", "divestiture", "spinoff", "amalgamation",
+            "securities", "shareholder", "governance", "proxy", "going-private",
         ],
         "phrases": [
-            "mergers and acquisitions", "plan of arrangement", "take-private",
-            "going private", "strategic transaction", "purchase agreement",
-            "share purchase", "asset purchase", "definitive agreement",
-            "board of directors", "special committee",
+            "mergers and acquisitions", "corporate governance", "hostile takeover",
+            "going private transaction", "purchase agreement", "share purchase",
+            "asset purchase", "management buyout", "strategic acquisition",
         ],
     },
     "Private Equity": {
         "keywords": [
-            "private equity", "PE", "buyout", "portfolio", "fund",
-            "carried interest", "LP", "GP", "management buyout", "MBO",
-            "leverage", "LBO", "recapitalization",
+            "private equity", "pe fund", "buyout", "portfolio company",
+            "venture capital", "growth equity", "fund formation", "lbo",
+            "carried interest", "limited partnership",
         ],
         "phrases": [
-            "private equity fund", "leveraged buyout", "management buyout",
-            "portfolio company", "fund formation", "GP-LP", "co-investment",
-            "private capital", "growth equity",
+            "private equity fund", "leveraged buyout", "portfolio company",
+            "fund formation", "management fee", "co-investment",
         ],
     },
     "Capital Markets": {
         "keywords": [
-            "IPO", "securities", "prospectus", "equity", "debt", "bond",
-            "offering", "underwriting", "issuance", "TSX", "NYSE", "OSC",
-            "continuous disclosure", "NI 51-102", "NI 44-101",
+            "ipo", "prospectus", "underwriting", "equity offering",
+            "debt financing", "bond", "debenture", "tsx", "investment grade",
+            "sedar", "continuous disclosure", "osi", "exempt distribution",
         ],
         "phrases": [
-            "initial public offering", "public offering", "bought deal",
-            "overnight marketed deal", "capital markets", "securities law",
-            "continuous disclosure", "exempt market", "accredited investor",
-            "offering memorandum", "shelf prospectus",
+            "initial public offering", "capital markets", "bought deal",
+            "short form prospectus", "national instrument", "continuous disclosure",
+            "equity financing", "debt capital",
         ],
     },
-    "Litigation & Disputes": {
+    "Litigation": {
         "keywords": [
-            "litigation", "dispute", "trial", "appeal", "plaintiff", "defendant",
-            "injunction", "damages", "judgment", "claim", "lawsuit", "court",
-            "arbitration", "mediation", "class action", "hearing",
+            "litigation", "lawsuit", "plaintiff", "defendant", "court",
+            "trial", "appeal", "arbitration", "dispute", "injunction",
+            "damages", "class action", "settlement", "judgment",
         ],
         "phrases": [
-            "class action", "commercial litigation", "civil litigation",
-            "appellate advocacy", "summary judgment", "statement of claim",
-            "statement of defence", "jury trial", "cross-examination",
-            "court of appeal",
+            "class action", "commercial litigation", "appellate court",
+            "statement of claim", "summary judgment", "contempt of court",
         ],
     },
-    "Restructuring & Insolvency": {
+    "Restructuring": {
         "keywords": [
-            "insolvency", "restructuring", "CCAA", "BIA", "bankruptcy",
-            "receivership", "monitor", "creditor", "debtor", "workout",
-            "distressed", "insolvent",
+            "restructuring", "insolvency", "bankruptcy", "creditor",
+            "ccaa", "bia", "receivership", "monitor", "proposal",
+            "debtor", "distressed", "wind-up",
         ],
         "phrases": [
-            "Companies' Creditors Arrangement Act", "Bankruptcy and Insolvency Act",
-            "court-appointed monitor", "creditor protection", "restructuring plan",
-            "proposal proceedings", "receivership proceedings", "distressed debt",
-            "debtor-in-possession",
+            "companies creditors arrangement", "court protection",
+            "creditor protection", "debt restructuring", "plan of arrangement",
+            "interim receiver",
         ],
     },
     "Real Estate": {
         "keywords": [
-            "real estate", "property", "land", "lease", "landlord", "tenant",
-            "zoning", "development", "REIT", "condominium", "construction",
-            "title", "mortgage", "easement",
+            "real estate", "property", "land", "zoning", "development",
+            "lease", "condo", "reit", "landlord", "tenant", "conveyance",
+            "subdivision", "planning",
         ],
         "phrases": [
-            "real estate investment trust", "commercial lease", "commercial real estate",
-            "purchase and sale", "title insurance", "land transfer", "site plan",
-            "development permit", "mixed-use", "joint venture real estate",
+            "real estate development", "land use planning", "commercial lease",
+            "purchase and sale", "real estate investment trust",
         ],
     },
     "Tax": {
         "keywords": [
-            "tax", "taxation", "ITA", "GST", "HST", "transfer pricing",
-            "CRA", "audit", "reassessment", "treaty", "withholding",
-            "income tax", "estate tax",
+            "tax", "taxation", "cra", "income tax", "gst", "hst",
+            "transfer pricing", "withholding", "estate planning",
+            "treaty", "audit", "reassessment",
         ],
         "phrases": [
-            "Income Tax Act", "tax planning", "tax structuring", "transfer pricing",
-            "tax controversy", "objection and appeal", "advance tax ruling",
-            "voluntary disclosure", "international tax", "indirect tax",
+            "income tax act", "transfer pricing", "tax planning",
+            "tax dispute", "canada revenue agency", "general anti-avoidance",
         ],
     },
-    "Employment & Labour": {
+    "Employment": {
         "keywords": [
-            "employment", "labour", "employee", "employer", "union", "collective",
-            "wrongful dismissal", "termination", "human rights", "discrimination",
-            "workplace", "arbitration", "OLRB",
+            "employment", "labour", "human rights", "workplace",
+            "wrongful dismissal", "collective agreement", "union",
+            "arbitration", "esa", "ohrc", "harassment", "pay equity",
         ],
         "phrases": [
-            "employment law", "labour relations", "wrongful dismissal",
-            "constructive dismissal", "collective agreement", "human rights code",
-            "occupational health and safety", "employment standards",
-            "labour arbitration", "WSIB", "employment contract",
+            "employment law", "wrongful dismissal", "constructive dismissal",
+            "collective bargaining", "human rights tribunal",
         ],
     },
-    "Intellectual Property": {
+    "IP": {
         "keywords": [
-            "intellectual property", "IP", "patent", "trademark", "copyright",
-            "trade secret", "licensing", "infringement", "CIPO", "brand",
-            "innovation", "invention",
+            "intellectual property", "patent", "trademark", "copyright",
+            "trade secret", "licensing", "infringement", "brand",
+            "cipo", "technology transfer",
         ],
         "phrases": [
-            "intellectual property", "patent prosecution", "trademark registration",
-            "copyright licensing", "trade secret", "IP strategy",
-            "technology licensing", "know-how", "patent infringement",
-            "trademark opposition",
+            "intellectual property", "trade-mark", "patent application",
+            "technology licensing", "ip portfolio",
         ],
     },
-    "Data Privacy & Cybersecurity": {
+    "Data Privacy": {
         "keywords": [
-            "privacy", "data", "PIPEDA", "CASL", "cybersecurity", "breach",
-            "GDPR", "personal information", "surveillance", "encryption",
-            "incident response",
+            "privacy", "data protection", "cybersecurity", "pipeda",
+            "ai regulation", "breach", "personal information", "gdpr",
+            "opc", "data governance", "security incident", "law 25",
         ],
         "phrases": [
-            "data privacy", "data protection", "privacy law", "cybersecurity law",
-            "data breach", "personal information protection", "privacy commissioner",
-            "privacy impact assessment", "PIPEDA compliance", "Bill C-27",
-            "incident response", "cyber incident",
+            "data breach", "privacy commissioner", "personal information",
+            "cybersecurity incident", "data protection", "privacy law",
+            "artificial intelligence regulation",
         ],
     },
-    "ESG & Regulatory": {
+    "ESG": {
         "keywords": [
-            "ESG", "environmental", "sustainability", "climate", "regulatory",
-            "compliance", "government", "administrative", "Indigenous",
-            "reconciliation", "impact assessment",
+            "esg", "sustainability", "climate", "environment", "emissions",
+            "carbon", "indigenous", "reconciliation", "dei", "diversity",
+            "social responsibility", "impact",
         ],
         "phrases": [
-            "environmental law", "ESG reporting", "sustainability disclosure",
-            "climate risk", "impact assessment", "regulatory compliance",
-            "administrative law", "Indigenous consultation", "duty to consult",
-            "carbon pricing", "net zero",
+            "environmental social governance", "climate disclosure",
+            "net zero", "indigenous rights", "diversity equity inclusion",
+            "sustainable finance",
         ],
     },
-    "Energy & Natural Resources": {
+    "Energy": {
         "keywords": [
-            "energy", "oil", "gas", "mining", "pipeline", "renewable",
-            "electricity", "NEB", "AER", "CER", "upstream", "downstream",
-            "extraction", "royalty",
+            "energy", "oil", "gas", "pipeline", "electricity", "renewable",
+            "solar", "wind", "nuclear", "neb", "aeso", "lng",
+            "upstream", "downstream",
         ],
         "phrases": [
-            "oil and gas", "natural resources", "energy law", "energy regulation",
-            "pipeline project", "renewable energy", "power purchase agreement",
-            "mining law", "resource development", "energy transition",
-            "Canada Energy Regulator", "Alberta Energy Regulator",
+            "oil and gas", "energy transition", "renewable energy",
+            "national energy board", "pipeline project",
         ],
     },
-    "Financial Services & Regulatory": {
+    "Financial Services": {
         "keywords": [
-            "banking", "financial", "OSFI", "fintech", "payments", "lending",
-            "insurance", "AML", "KYC", "regulatory", "FINTRAC",
+            "banking", "finance", "fintech", "osfi", "credit", "insurance",
+            "derivatives", "hedge fund", "aml", "compliance", "lending",
+            "payment", "crypto", "digital asset",
         ],
         "phrases": [
-            "financial services", "banking law", "financial regulation",
-            "anti-money laundering", "know your client", "fintech regulation",
-            "payment systems", "financial institution", "prudential regulation",
-            "Open Banking", "digital assets",
+            "financial services", "bank act", "financial institution",
+            "anti-money laundering", "digital currency", "crypto currency",
+            "payment services",
         ],
     },
-    "Competition & Antitrust": {
+    "Competition": {
         "keywords": [
-            "competition", "antitrust", "merger review", "cartel", "abuse",
-            "dominant", "bureau", "consent agreement", "market power",
+            "competition", "antitrust", "cartel", "merger review",
+            "abuse of dominance", "competition bureau", "consent agreement",
+            "deceptive marketing",
         ],
         "phrases": [
-            "competition law", "Competition Bureau", "merger review",
-            "abuse of dominant position", "price-fixing", "cartel investigation",
-            "Competition Act", "deceptive marketing", "competitor collaboration",
+            "competition act", "merger review", "abuse of dominance",
+            "competition bureau", "anti-competitive",
         ],
     },
-    "Healthcare & Life Sciences": {
+    "Healthcare": {
         "keywords": [
-            "healthcare", "health", "pharmaceutical", "drug", "medical device",
-            "life sciences", "biotech", "FDA", "Health Canada", "clinical",
-            "regulatory approval", "hospital",
+            "healthcare", "pharmaceutical", "medical", "health law",
+            "biotech", "clinical trial", "drug", "patented medicine",
+            "health canada",
         ],
         "phrases": [
-            "health law", "life sciences", "pharmaceutical regulation",
-            "medical device", "Health Canada approval", "clinical trial",
-            "drug approval", "healthcare regulatory", "biopharmaceutical",
+            "health law", "pharmaceutical regulatory", "clinical trial",
+            "food and drug", "patented medicine",
         ],
     },
     "Immigration": {
         "keywords": [
-            "immigration", "visa", "permit", "citizenship", "refugee",
-            "IRCC", "CBSA", "work permit", "PR", "permanent resident",
-            "inadmissibility",
+            "immigration", "visa", "work permit", "ircc", "refugee",
+            "citizenship", "permanent resident", "lmia", "express entry",
         ],
         "phrases": [
             "immigration law", "work permit", "permanent residence",
-            "temporary foreign worker", "refugee claim", "inadmissibility",
-            "immigration compliance", "LMIA", "Express Entry", "corporate immigration",
+            "labour market impact assessment",
         ],
     },
-    "Infrastructure & Projects": {
+    "Infrastructure": {
         "keywords": [
-            "infrastructure", "project finance", "P3", "PPP", "construction",
-            "public-private", "procurement", "concession", "design-build",
+            "infrastructure", "p3", "ppp", "public private", "construction",
+            "transit", "toll road", "airport", "port", "procurement",
         ],
         "phrases": [
-            "infrastructure project", "project finance", "public-private partnership",
-            "P3 project", "design-build-finance", "construction law",
-            "procurement law", "concession agreement", "infrastructure fund",
+            "public private partnership", "infrastructure project",
+            "design build finance", "project finance",
         ],
     },
 }
