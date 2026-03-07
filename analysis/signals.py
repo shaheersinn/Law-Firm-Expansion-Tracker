@@ -1,166 +1,155 @@
 """
-Expansion signal scorer and spike detector.
-
-For each (firm, department) pair, this module:
-  1. Aggregates all raw signals from the current week
-  2. Compares to the rolling 4-week baseline
-  3. Scores expansion confidence using a weighted signal model
-  4. Flags pairs with significant spikes as "expanding"
-
-Expansion Score Formula:
-  score = Σ (signal_weight × department_score × recency_multiplier)
-
-Signal weights by type:
-  lateral_hire    → 3.0  (strongest: firm paid to bring in expertise)
-  practice_page   → 2.5  (firm invested in marketing a new area)
-  job_posting     → 2.0  (firm is actively hiring in the area)
-  press_release   → 1.5  (firm is publicizing work in the area)
-  publication     → 1.0  (lawyers are writing about the area)
-  attorney_profile→ 1.0  (bios updated with new practice area)
+ExpansionAnalyzer — aggregates signals, computes expansion scores,
+runs z-score spike detection, and detects website changes.
 """
 
+import math
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
-from database.db import Database
 
-logger = logging.getLogger("signals")
+logger = logging.getLogger(__name__)
 
+# Minimum score to surface as an alert
+MIN_ALERT_SCORE = 3.5
+
+# Signal type base weights (tunable — also overridden by dept_score)
 SIGNAL_WEIGHTS = {
-    # Original signals
-    "lateral_hire":     3.0,
-    "practice_page":    2.5,
-    "job_posting":      2.0,
-    "press_release":    1.5,
-    "publication":      1.0,
-    "attorney_profile": 1.0,
-    "website_snapshot": 0.0,
-    # Enhanced signals
-    "bar_leadership":   3.5,  # section chair = firm asserting leadership
-    "ranking":          3.0,  # Chambers/Legal500 = third-party validation
-    "court_record":     2.5,  # CanLII = actual filed cases
-    "recruit_posting":  2.0,  # student hiring = planned 12-18mo expansion
-    "bar_speaking":     1.5,  # presenting at bar = building profile
-    "bar_sponsorship":  1.0,  # sponsoring bar event = BD investment
-    "bar_mention":      0.5,
+    "lateral_hire":    3.0,
+    "ranking":         3.0,
+    "bar_leadership":  3.5,
+    "court_record":    2.5,
+    "practice_page":   2.5,
+    "job_posting":     2.0,
+    "recruit_posting": 2.0,
+    "bar_speaking":    1.5,
+    "bar_sponsorship": 2.0,
+    "press_release":   1.5,
+    "publication":     1.0,
+    "website_snapshot": 0.0,  # scored only on change
 }
 
-# Minimum expansion score to flag as "expanding"
-# 3.5 = requires either 2 meaningful signals OR 1 high-weight signal (lateral hire)
-# A single practice_page (2.5*1.1=2.75) or publication (1.0*1.1=1.1) won't fire alone
-EXPANSION_THRESHOLD = 3.5
-
-# Minimum number of distinct signals in a (firm, dept) bucket before alerting
-# Prevents single-signal false positives (e.g. one practice page = not an expansion)
-MIN_SIGNALS_FOR_ALERT = 2
-
-# Spike: current week score is at least this multiple of baseline average
-SPIKE_MULTIPLIER = 1.8
+# Department display emojis
+DEPT_EMOJI = {
+    "Corporate/M&A":       "🏢",
+    "Private Equity":      "💼",
+    "Capital Markets":     "📈",
+    "Litigation":          "⚖️",
+    "Restructuring":       "🔄",
+    "Real Estate":         "🏗️",
+    "Tax":                 "🧾",
+    "Employment":          "👥",
+    "IP":                  "💡",
+    "Data Privacy":        "🔒",
+    "ESG":                 "🌿",
+    "Energy":              "⚡",
+    "Financial Services":  "🏦",
+    "Competition":         "⚡",
+    "Healthcare":          "🏥",
+    "Immigration":         "🌐",
+    "Infrastructure":      "🏛️",
+}
 
 
 class ExpansionAnalyzer:
-    def __init__(self, db: Database):
+    def __init__(self, db):
         self.db = db
-        self._weights = self._load_weights()
 
-    def _load_weights(self) -> dict:
-        """Load learned signal-type weights from DB, fall back to static defaults."""
-        weights = dict(SIGNAL_WEIGHTS)
-        try:
-            cur = self.db.conn.execute(
-                "SELECT signal_type, weight FROM signal_type_weights"
-            )
-            for sig_type, w in cur.fetchall():
-                weights[sig_type] = w
-        except Exception:
-            pass  # table may not exist yet — use static defaults
-        return weights
-
-    def analyze(self, new_signals: list[dict]) -> list[dict]:
+    def analyze(self, signals: list[dict]) -> list[dict]:
         """
-        Given new signals collected this run, return a list of expansion alerts:
-        firms/departments showing significant growth signals.
+        Groups signals by (firm, department), computes expansion scores,
+        applies z-score spike detection, returns sorted alert list.
         """
-        alerts = []
-
-        # Group new signals by (firm_id, department)
         grouped = defaultdict(list)
-        for signal in new_signals:
-            if signal["department"] and signal["signal_type"] != "website_snapshot":
-                key = (signal["firm_id"], signal["department"])
-                grouped[key].append(signal)
+        for s in signals:
+            if s.get("signal_type") == "website_snapshot":
+                continue
+            key = (s["firm_id"], s["firm_name"], s.get("department", "Corporate/M&A"))
+            grouped[key].append(s)
 
-        # Score each group
-        for (firm_id, department), signals in grouped.items():
-            current_score = self._score_signals(signals)
+        alerts = []
+        for (firm_id, firm_name, department), firm_signals in grouped.items():
+            score, breakdown = self._compute_score(firm_signals)
+            if score < MIN_ALERT_SCORE:
+                continue
 
-            # Get baseline: average weekly score over past 4 weeks
-            baseline = self.db.get_weekly_baseline(firm_id, department, weeks=4)
+            # Z-score vs 4-week baseline
+            historical = self.db.get_historical_scores(firm_id, department, weeks=4)
+            z_score, baseline_mult = _z_score(score, historical)
 
-            is_spike = False
-            if baseline > 0:
-                is_spike = current_score >= (baseline * SPIKE_MULTIPLIER)
-            else:
-                # No history — flag if score is meaningful on its own
-                is_spike = current_score >= EXPANSION_THRESHOLD
+            alerts.append({
+                "firm_id":          firm_id,
+                "firm_name":        firm_name,
+                "department":       department,
+                "dept_emoji":       DEPT_EMOJI.get(department, "🏛"),
+                "expansion_score":  round(score, 1),
+                "signal_count":     len(firm_signals),
+                "signal_breakdown": breakdown,
+                "signals":          firm_signals,
+                "z_score":          round(z_score, 2),
+                "baseline_mult":    round(baseline_mult, 1),
+                "is_spike":         z_score >= 1.5 or (not historical and score >= MIN_ALERT_SCORE),
+            })
 
-            if (is_spike or current_score >= EXPANSION_THRESHOLD) and len(signals) >= MIN_SIGNALS_FOR_ALERT:
-                top_signals = sorted(signals, key=lambda s: SIGNAL_WEIGHTS.get(s["signal_type"], 0), reverse=True)[:3]
-                alerts.append({
-                    "firm_id": firm_id,
-                    "firm_name": signals[0]["firm_name"],
-                    "department": department,
-                    "expansion_score": round(current_score, 2),
-                    "baseline_score": round(baseline, 2),
-                    "spike_ratio": round(current_score / baseline, 2) if baseline > 0 else None,
-                    "signal_count": len(signals),
-                    "signal_breakdown": self._breakdown(signals),
-                    "top_signals": top_signals,
-                    "is_spike": is_spike,
-                })
-
-        # Sort by expansion score descending
-        alerts.sort(key=lambda a: a["expansion_score"], reverse=True)
-        logger.info(f"Expansion alerts generated: {len(alerts)}")
+        alerts.sort(key=lambda x: x["expansion_score"], reverse=True)
         return alerts
 
-    def _score_signals(self, signals: list[dict]) -> float:
+    def _compute_score(self, signals: list[dict]) -> tuple[float, dict]:
+        breakdown = defaultdict(int)
         total = 0.0
-        for s in signals:
-            weight = self._weights.get(s["signal_type"], 0.5)
-            dept_score = min(s.get("department_score", 1.0), 20.0)  # cap outliers
-            total += weight * (1 + dept_score * 0.1)
-        return total
 
-    def _breakdown(self, signals: list[dict]) -> dict:
-        counts = defaultdict(int)
         for s in signals:
-            counts[s["signal_type"]] += 1
-        return dict(counts)
+            base_weight = SIGNAL_WEIGHTS.get(s.get("signal_type", "publication"), 1.0)
+            dept_score  = float(s.get("dept_score", s.get("department_score", 0)))
+            # Use the higher of base_weight or dept_score (capped at 5.0)
+            score = min(max(base_weight, dept_score), 5.0)
+            total += score
+            breakdown[s["signal_type"]] = breakdown[s["signal_type"]] + 1
+
+        return total, dict(breakdown)
 
     def detect_website_changes(self, new_signals: list[dict]) -> list[dict]:
-        """Detect firms whose practice area pages have changed content."""
-        import hashlib
+        """
+        Compares website_snapshot signals against stored hashes.
+        Returns list of changed pages as high-weight signals.
+        """
         changes = []
-        snapshots = [s for s in new_signals if s["signal_type"] == "website_snapshot"]
+        for s in new_signals:
+            if s.get("signal_type") != "website_snapshot":
+                continue
 
-        for snap in snapshots:
-            old_hash = self.db.get_last_website_hash(snap["firm_id"], snap["url"])
-            # Hash raw body the same way save_website_hash does (sha-256)
-            # Previously compared sha-256 stored hash against raw body string → never matched
-            new_hash = hashlib.sha256((snap["body"] or "").encode()).hexdigest()
+            firm_id = s["firm_id"]
+            url     = s.get("url", "")
+            new_hash = s.get("body", "")
 
-            if old_hash and old_hash != new_hash:
+            stored = self.db.get_website_hash(firm_id, url)
+            if stored is None:
+                # First time seeing — store and skip
+                continue
+            if stored != new_hash:
                 changes.append({
-                    "firm_id":     snap["firm_id"],
-                    "firm_name":   snap["firm_name"],
-                    "url":         snap["url"],
-                    "change_type": "practice_page_updated",
-                    "message":     f"Practice area page content changed at {snap['url']}",
+                    "firm_id":   firm_id,
+                    "firm_name": s["firm_name"],
+                    "url":       url,
+                    "dept":      s.get("department", ""),
                 })
-                logger.info(f"Website change detected: [{snap['firm_name']}] {snap['url']}")
-
-            # Always refresh the stored hash so the next run compares against today's content
-            self.db.save_website_hash(snap["firm_id"], snap["url"], snap["body"] or "")
 
         return changes
+
+
+# ── Statistics helpers ────────────────────────────────────────────────────
+
+def _z_score(value: float, historical: list[float]) -> tuple[float, float]:
+    if not historical:
+        return 0.0, 1.0
+
+    n   = len(historical)
+    mu  = sum(historical) / n
+    if n < 2:
+        sigma = mu * 0.3 or 1.0
+    else:
+        variance = sum((x - mu) ** 2 for x in historical) / (n - 1)
+        sigma = math.sqrt(variance) or (mu * 0.3 or 1.0)
+
+    z = (value - mu) / sigma
+    mult = value / mu if mu > 0 else 1.0
+    return z, mult
