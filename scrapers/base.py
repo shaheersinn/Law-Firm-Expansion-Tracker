@@ -128,6 +128,14 @@ class BaseScraper(ABC):
             except requests.exceptions.Timeout:
                 self.logger.warning(f"Timeout on {url} (attempt {attempt})")
             except requests.exceptions.ConnectionError as e:
+                err_str = str(e)
+                # DNS failure (NameResolutionError) → no point retrying any URL on this domain
+                if "NameResolutionError" in err_str or "Failed to resolve" in err_str or "Errno -3" in err_str:
+                    _DOMAIN_RATE_LIMITED.add(_domain)
+                    self.logger.warning(
+                        f"DNS failure for {_domain} — blocking all further requests to this domain"
+                    )
+                    return None
                 self.logger.warning(f"Connection error on {url}: {e} (attempt {attempt})")
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"Request failed on {url}: {e}")
