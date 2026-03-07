@@ -322,6 +322,23 @@ class Notifier:
                 if top_bucket.get("is_spike") and top_bucket.get("spike_ratio"):
                     spike_tag = f" · ↑{top_bucket['spike_ratio']}× vs baseline"
 
+                # Confidence band (from ConfidenceScorer — may not be present on older alerts)
+                conf_score = top_bucket.get("confidence_score")
+                conf_band  = top_bucket.get("confidence_band", "")
+                conf_tag   = ""
+                if conf_score is not None:
+                    band_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}.get(conf_band, "")
+                    conf_tag = f" · {band_emoji} {conf_band} confidence ({conf_score}%)"
+
+                # Trajectory tag
+                traj = top_bucket.get("trajectory", {})
+                traj_label = traj.get("label", "")
+                traj_tag = ""
+                if traj_label and traj_label not in ("ACTIVE", "NEW", ""):
+                    from learning.confidence import TRAJECTORY_EMOJI
+                    t_emoji = TRAJECTORY_EMOJI.get(traj_label, "")
+                    traj_tag = f"\n   {t_emoji} <i>{traj_label.capitalize()}</i>"
+
                 # Department list for this firm
                 dept_tags = " · ".join(
                     f"{DEPT_EMOJI.get(a['department'], '⚖️')} {a['department']}"
@@ -330,7 +347,9 @@ class Notifier:
 
                 lines.append(f"{i}. 🏛 <b>{firm_name}</b>")
                 lines.append(f"   {dept_tags}")
-                lines.append(f"   {strength}{spike_tag} · {_p(total_signals, 'signal')}")
+                lines.append(f"   {strength}{spike_tag} · {_p(total_signals, 'signal')}{conf_tag}")
+                if traj_tag:
+                    lines.append(traj_tag.strip())
 
                 # Aggregate breakdown across all this firm's buckets
                 merged_breakdown: dict[str, int] = defaultdict(int)
