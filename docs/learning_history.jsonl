@@ -133,3 +133,14 @@
 {"ts": "2026-03-07T13:47:44.653730+00:00Z", "phase": "bootstrap", "confirmed": 86, "false_pos": 0, "kw_updated": 0}
 {"ts": "2026-03-07T13:47:45.691703+00:00Z", "phase": "bootstrap", "confirmed": 57, "false_pos": 0, "kw_updated": 0}
 {"ts": "2026-03-07T13:47:46.593396+00:00Z", "phase": "bootstrap", "confirmed": 47, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:36.300006+00:00Z", "phase": "bootstrap", "confirmed": 111, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:40.447173+00:00Z", "phase": "bootstrap", "confirmed": 578, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:44.262078+00:00Z", "phase": "bootstrap", "confirmed": 481, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:46.296926+00:00Z", "phase": "bootstrap", "confirmed": 207, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:47.880864+00:00Z", "phase": "bootstrap", "confirmed": 153, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:49.164981+00:00Z", "phase": "bootstrap", "confirmed": 98, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:50.290459+00:00Z", "phase": "bootstrap", "confirmed": 76, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:51.223368+00:00Z", "phase": "bootstrap", "confirmed": 52, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:52.295983+00:00Z", "phase": "bootstrap", "confirmed": 58, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:53.254668+00:00Z", "phase": "bootstrap", "confirmed": 35, "false_pos": 0, "kw_updated": 0}
+{"ts": "2026-03-07T14:45:54.184363+00:00Z", "phase": "bootstrap", "confirmed": 35, "false_pos": 0, "kw_updated": 0}

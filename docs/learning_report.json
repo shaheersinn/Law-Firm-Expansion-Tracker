@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-03-07T13:47:46.593396+00:00Z",
+  "generated_at": "2026-03-07T14:45:54.184363+00:00Z",
   "learning_schedule": {
     "phase": "bootstrap",
     "elapsed_hours": 0.0,
     "run_count": 11,
-    "total_confirmed": 1856,
+    "total_confirmed": 1884,
     "total_false_pos": 0,
     "alpha": 0.4
   },
   "feedback_this_run": {
-    "confirmed": 47,
+    "confirmed": 35,
     "false_positives": 0
   },
   "keyword_weights": {
@@ -23,8 +23,8 @@
   "keywords_updated": 0,
   "signal_type_weights": {
     "lateral_hire": 5.0,
-    "practice_page": 4.9849,
-    "job_posting": 3.9879,
+    "practice_page": 4.9909,
+    "job_posting": 3.9927,
     "press_release": 2.9945,
     "publication": 1.9963,
     "attorney_profile": 1.0,
@@ -32,7 +32,7 @@
     "bar_leadership": 5.0,
     "ranking": 5.0,
     "court_record": 2.5,
-    "recruit_posting": 3.9879,
+    "recruit_posting": 3.9927,
     "bar_speaking": 1.5,
     "bar_sponsorship": 1.0,
     "bar_mention": 0.5
@@ -41,102 +41,102 @@
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "practice page",
-      "freq": 144
-    },
-    {
-      "dept": "Financial Services & Regulatory",
-      "ngram": "banking financial",
-      "freq": 128
-    },
-    {
-      "dept": "Financial Services & Regulatory",
-      "ngram": "banking financial services",
-      "freq": 128
+      "freq": 149
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "blockchain digital",
-      "freq": 126
+      "freq": 136
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "assets regulatory",
-      "freq": 126
+      "freq": 136
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "regulatory outlook",
-      "freq": 126
+      "freq": 136
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "blockchain digital assets",
-      "freq": 126
+      "freq": 136
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "digital assets regulatory",
-      "freq": 126
+      "freq": 136
     },
     {
       "dept": "Financial Services & Regulatory",
       "ngram": "assets regulatory outlook",
-      "freq": 126
+      "freq": 136
+    },
+    {
+      "dept": "Financial Services & Regulatory",
+      "ngram": "banking financial",
+      "freq": 133
+    },
+    {
+      "dept": "Financial Services & Regulatory",
+      "ngram": "banking financial services",
+      "freq": 133
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "news publicationthe",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "publicationthe rise",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "rise influencer",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "influencer marketing",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "marketing class",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "class actionscanada",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "news publicationthe rise",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "publicationthe rise influencer",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "rise influencer marketing",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "influencer marketing class",
-      "freq": 111
+      "freq": 113
     },
     {
       "dept": "Litigation & Disputes",
       "ngram": "marketing class actionscanada",
-      "freq": 111
+      "freq": 113
     }
   ],
   "healer_summary": {
@@ -156,52 +156,52 @@
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:46"
+      "at": "2026-03-07 14:45:53"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'PressScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:45"
+      "at": "2026-03-07 14:45:52"
     },
     {
       "error": "RATE_LIMIT",
       "action": "Blocked endpoint logged for 'JobsScraper' \u2014 consider rotating user-agent or adding delay",
-      "at": "2026-03-07 13:47:45"
+      "at": "2026-03-07 14:45:52"
     }
   ],
   "anomalies": []
