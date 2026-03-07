@@ -85,6 +85,11 @@ class ChambersScraper(BaseScraper):
         signals.extend(self._scrape_chambers(firm))
         signals.extend(self._scrape_legal500(firm))
         signals.extend(self._scrape_canadian_lawyer_rankings(firm))
+        if not signals:
+            self.logger.info(
+                f"[{firm['short']}] Chambers/Legal500: 0 rankings found "
+                "(site may require JS/login — consider adding manual ranking data)"
+            )
         return signals
 
     # ------------------------------------------------------------------ #

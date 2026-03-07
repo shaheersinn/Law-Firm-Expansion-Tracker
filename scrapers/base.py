@@ -42,9 +42,12 @@ USER_AGENTS = [
 _SESSION = requests.Session()
 _SESSION.headers.update({"Accept-Language": "en-CA,en;q=0.9"})
 
-# Per-domain rate-limit memory — once a domain 429s we skip it for the rest of the run
+# Per-domain rate-limit memory — once a domain 429s/persistently-500s we skip it
 # This stops mccarthy.ca-style loops where 15+ URL variants are tried one by one
 _DOMAIN_RATE_LIMITED: set[str] = set()
+
+# Track consecutive 500s per domain — after 2 distinct URLs 500, block the domain
+_DOMAIN_500_URLS: dict[str, set] = {}
 
 
 class BaseScraper(ABC):
@@ -114,6 +117,14 @@ class BaseScraper(ABC):
                     return None
                 else:
                     self.logger.warning(f"HTTP {resp.status_code} for {url} (attempt {attempt})")
+                    if resp.status_code == 500 and attempt == self.max_retries:
+                        # Track this domain's 500 URLs; block after 2 distinct URLs fail
+                        _DOMAIN_500_URLS.setdefault(_domain, set()).add(url)
+                        if len(_DOMAIN_500_URLS[_domain]) >= 2:
+                            _DOMAIN_RATE_LIMITED.add(_domain)
+                            self.logger.warning(
+                                f"Domain {_domain} blocked — {len(_DOMAIN_500_URLS[_domain])} URLs returned 500"
+                            )
             except requests.exceptions.Timeout:
                 self.logger.warning(f"Timeout on {url} (attempt {attempt})")
             except requests.exceptions.ConnectionError as e:

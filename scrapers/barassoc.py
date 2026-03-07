@@ -151,10 +151,11 @@ class BarAssociationScraper(BaseScraper):
             combined = f"{title} {body}".lower()
 
             # Must mention the firm (or one of its lawyers — harder to detect)
-            firm_mentioned = (
-                firm["short"].lower() in combined
-                or firm["name"].split()[0].lower() in combined
-            )
+            firm_terms_rss = {firm["short"].lower()}
+            for word in firm["name"].split():
+                if len(word) > 3 and word.lower() not in ("llp", "and", "the"):
+                    firm_terms_rss.add(word.lower())
+            firm_mentioned = any(t in combined for t in firm_terms_rss)
             if not firm_mentioned:
                 continue
 
@@ -298,7 +299,22 @@ class BarAssociationScraper(BaseScraper):
             if "section" in a.get("href", "").lower() and len(a.get_text(strip=True)) > 3
         ]
 
-        for link in section_links[:5]:  # cap to avoid timeout
+        if not section_links:
+            self.logger.debug(f"[{firm['short']}] OBA: no section links found on {url}")
+
+        # Build search terms: short name + all words from full name
+        firm_terms = set()
+        firm_terms.add(firm["short"].lower())
+        for word in firm["name"].split():
+            if len(word) > 3 and word.lower() not in ("llp", "and", "the"):
+                firm_terms.add(word.lower())
+        # Also check firm domain if available
+        if firm.get("url"):
+            from urllib.parse import urlparse
+            domain_root = urlparse(firm["url"]).netloc.replace("www.", "").split(".")[0]
+            firm_terms.add(domain_root.lower())
+
+        for link in section_links[:15]:  # increased from 5 → 15 sections
             section_name = link.get_text(strip=True)
             href = link.get("href", "")
             section_url = ("https://www.oba.org" + href) if href.startswith("/") else href
@@ -308,10 +324,10 @@ class BarAssociationScraper(BaseScraper):
                 continue
 
             section_soup = BeautifulSoup(section_response.text, "html.parser")
-            section_text = section_soup.get_text(separator=" ")
+            section_text = section_soup.get_text(separator=" ").lower()
 
-            if firm["short"].lower() not in section_text.lower() and \
-               firm["name"].split()[0].lower() not in section_text.lower():
+            # Match any of the firm's name terms
+            if not any(term in section_text for term in firm_terms):
                 continue
 
             dept = self._classify_section(section_name)

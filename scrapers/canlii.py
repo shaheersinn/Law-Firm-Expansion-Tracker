@@ -98,7 +98,10 @@ class CanLIIScraper(BaseScraper):
         # CanLII API requires an API key — skip silently if not configured
         # Get a free key at: https://api.canlii.org/
         if not CANLII_API_KEY:
-            self.logger.debug("CanLII skipped — set CANLII_API_KEY env var to enable")
+            self.logger.info(
+                f"[{firm["short"]}] CanLII skipped — CANLII_API_KEY not set. "
+                "Get a free key at https://api.canlii.org/"
+            )
             return []
         signals = []
         signals.extend(self._search_recent_cases(firm))
