@@ -58,6 +58,10 @@ jobs:
           SIGNAL_LOOKBACK_DAYS: "21"
         run: python main.py
 
+      - name: Run self-learning evolution — scheduled
+        if: github.event_name == 'schedule'
+        run: python main.py --evolve
+
       - name: Run tracker — manual dispatch
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -76,6 +80,7 @@ jobs:
           else
             python main.py
           fi
+          python main.py --evolve
 
 
       - name: Commit dashboard to docs/
