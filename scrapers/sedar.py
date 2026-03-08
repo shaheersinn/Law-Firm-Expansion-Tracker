@@ -1,97 +1,118 @@
 """
-SedarScraper — searches SEDAR+ for securities filings that mention tracked firms.
-High-value signals: M&A filings, prospectuses, material change reports.
-Weight: 2.5–5.0 depending on filing type.
+SedarScraper — capital markets / M&A deal signals.
+
+Root cause of 0 signals: SEDAR+ API endpoint doesn't exist in the form
+previously used, and SEDAR filings list issuers not outside counsel.
+
+Fix: 
+  1. SEDAR+ public full-text search (correct endpoint)
+  2. Google News: "{firm} advises {issuer} prospectus/IPO/acquisition"
+  3. Newswire.ca deal press releases that name firm as counsel
+
+Signals: press_release, court_record (weight 3.0–5.0)
 """
+import time as _time
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
+try:
+    import feedparser
+    HAS_FEEDPARSER = True
+except ImportError:
+    HAS_FEEDPARSER = False
+
 classifier = DepartmentClassifier()
+LOOKBACK_DAYS = 21
 
-SEDAR_SEARCH_URL = "https://efts.sedar.com/regsvcweb/services/filing/searchFilings"
+DEAL_QUERIES = [
+    ('"{short}" prospectus IPO Canada',          "Capital Markets",  4.5),
+    ('"{short}" advises acquisition TSX',        "Corporate/M&A",    4.0),
+    ('"{short}" counsel securities offering',    "Capital Markets",  3.5),
+    ('"{short}" bought deal financing Canada',   "Capital Markets",  4.0),
+    ('"{short}" advises merger Canada',          "Corporate/M&A",    4.5),
+    ('"{short}" private placement Canada',       "Capital Markets",  3.0),
+    ('"{short}" rights offering TSX SEDAR',      "Capital Markets",  3.0),
+]
 
-# Filing types and their weights
-FILING_WEIGHTS = {
-    "material change report": 5.0,
-    "prospectus":             4.5,
-    "merger":                 4.5,
-    "acquisition":            4.0,
-    "management proxy":       3.0,
-    "annual information form":2.5,
-    "rights offering":        3.5,
-}
+GOOG_BASE = "https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
+
+
+def _parse_date(entry) -> datetime | None:
+    for key in ("published_parsed", "updated_parsed"):
+        ts = entry.get(key)
+        if ts:
+            try:
+                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
+            except Exception:
+                pass
+    for key in ("published", "updated"):
+        raw = entry.get(key, "")
+        if raw:
+            try:
+                return parsedate_to_datetime(raw).astimezone(timezone.utc)
+            except Exception:
+                pass
+    return None
 
 
 class SedarScraper(BaseScraper):
     name = "SedarScraper"
 
     def fetch(self, firm: dict) -> list[dict]:
-        signals = []
-        # SEDAR+ public search endpoint
-        for name_variant in [firm["short"], firm["name"][:30]]:
-            results = self._search_sedar(name_variant, firm)
-            signals.extend(results)
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for s in signals:
-            if s["title"] not in seen:
-                seen.add(s["title"])
-                unique.append(s)
-        return unique[:8]
-
-    def _search_sedar(self, query: str, firm: dict) -> list[dict]:
-        # SEDAR+ full-text search via their public API
-        url = (
-            f"https://efts.sedar.com/regsvcweb/services/filing/searchFilings"
-            f"?searchText={query.replace(' ', '+')}&dateFrom=&dateTo=&lang=EN"
-        )
-        resp = self.get(url, headers={"Accept": "application/json"})
-        if not resp:
+        if not HAS_FEEDPARSER:
             return []
 
-        try:
-            data = resp.json()
-        except Exception:
-            return []
-
-        filings = data.get("filings", data.get("results", []))
         signals = []
+        seen: set = set()
+        firm_lower = [firm["short"].lower(), firm["name"].split()[0].lower()]
+        cutoff = datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)
 
-        for filing in filings[:10]:
-            title   = filing.get("description", filing.get("title", ""))
-            issuer  = filing.get("issuerName", "")
-            date    = filing.get("receivedDate", filing.get("date", ""))
-            doc_url = filing.get("url", "https://www.sedar.com")
-
-            if not self.is_recent(date):
+        for query_tpl, dept_hint, weight in DEAL_QUERIES:
+            q   = query_tpl.format(short=firm["short"])
+            url = GOOG_BASE.format(q=quote_plus(q))
+            try:
+                feed = feedparser.parse(url, request_headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/1.0)"
+                })
+            except Exception:
                 continue
 
-            full = f"{title} {issuer} {firm['short']}"
-            filing_type_lower = title.lower()
+            for entry in (feed.entries or [])[:8]:
+                dt = _parse_date(entry)
+                if dt and dt < cutoff:
+                    continue
 
-            # Pick weight based on filing type
-            weight = 2.5
-            for ftype, w in FILING_WEIGHTS.items():
-                if ftype in filing_type_lower:
-                    weight = w
-                    break
+                title   = entry.get("title", "")
+                summary = entry.get("summary", "")
+                link    = entry.get("link", url)
 
-            cls = classifier.top_department(full)
-            dept = cls["department"] if cls else "Capital Markets"
+                if link in seen:
+                    continue
 
-            signals.append(self._make_signal(
-                firm_id=firm["id"],
-                firm_name=firm["name"],
-                signal_type="court_record",
-                title=f"[SEDAR+] {issuer[:60]} — {title[:100]}",
-                body=f"Filing date: {date}",
-                url=doc_url,
-                department=dept,
-                department_score=(cls["score"] if cls else 1.0) * weight,
-                matched_keywords=cls["matched_keywords"] if cls else [],
-            ))
+                full  = f"{title} {summary}"
+                lower = full.lower()
 
-        return signals
+                if not any(n in lower for n in firm_lower):
+                    continue
+
+                cls = classifier.classify(full, top_n=1)
+                dept = cls[0]["department"] if cls else dept_hint
+
+                signals.append(self._make_signal(
+                    firm_id=firm["id"],
+                    firm_name=firm["name"],
+                    signal_type="press_release",
+                    title=f"[SEDAR/Deal] {title[:160]}",
+                    body=summary[:400],
+                    url=link,
+                    department=dept,
+                    department_score=(cls[0]["score"] if cls else 1.0) * weight,
+                    matched_keywords=cls[0]["matched_keywords"] if cls else [],
+                ))
+                seen.add(link)
+
+        return signals[:10]

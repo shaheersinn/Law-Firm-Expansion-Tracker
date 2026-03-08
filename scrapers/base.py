@@ -112,3 +112,16 @@ class BaseScraper:
 
     def fetch(self, firm: dict) -> list[dict]:
         raise NotImplementedError
+
+# ── feedparser shim ───────────────────────────────────────────────────────────
+import sys as _sys
+try:
+    import feedparser as _fp
+except ImportError:
+    import importlib.util as _ilu
+    import os as _os
+    _stub = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "feedparser_stub.py")
+    _spec = _ilu.spec_from_file_location("feedparser", _stub)
+    _fp   = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_fp)
+    _sys.modules["feedparser"] = _fp
