@@ -1,5 +1,5 @@
-requests==2.31.0
-beautifulsoup4==4.12.3
-lxml==5.2.1
-python-dotenv==1.0.1
-feedparser==6.0.11
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+python-dotenv>=1.0.0
+# feedparser>=6.0.11   # optional — feedparser_stub.py is used as fallback if not available

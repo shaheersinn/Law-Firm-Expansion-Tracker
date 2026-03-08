@@ -14,6 +14,9 @@ class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID:   str = os.getenv("TELEGRAM_CHAT_ID",   "")
 
+    # Dashboard — hardcoded Vercel URL, overridable via env
+    DASHBOARD_URL: str = os.getenv("DASHBOARD_URL", "https://law-firm-tracker.vercel.app/")
+
     # Behaviour
     INSTANT_ALERT_ON_LATERAL: bool = os.getenv("INSTANT_ALERT_ON_LATERAL", "true").lower() == "true"
 
