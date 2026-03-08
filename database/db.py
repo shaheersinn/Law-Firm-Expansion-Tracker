@@ -212,6 +212,15 @@ class Database:
         """)
         return {r["department"]: r["correct"] / r["total"] for r in cur.fetchall() if r["total"] > 0}
 
+    def get_signals_since(self, firm_id: str, since) -> list[dict]:
+        """Return all signals for a firm since a given datetime."""
+        cutoff = since.isoformat() if hasattr(since, "isoformat") else str(since)
+        cur = self.conn.execute(
+            "SELECT * FROM signals WHERE firm_id=? AND collected_at >= ? ORDER BY collected_at DESC",
+            (firm_id, cutoff)
+        )
+        return [dict(r) for r in cur.fetchall()]
+
     def close(self):
         self.conn.close()
 
