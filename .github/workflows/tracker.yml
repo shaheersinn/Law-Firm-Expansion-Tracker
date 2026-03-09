@@ -4,8 +4,6 @@ on:
   schedule:
     # Daily full collect at 07:00 UTC
     - cron: "0 7 * * *"
-    # Weekly digest on Sunday at 09:00 UTC
-    - cron: "0 9 * * 0"
     # Daily self-learning evolution at 08:00 UTC
     - cron: "0 8 * * *"
   workflow_dispatch:
@@ -25,6 +23,12 @@ on:
         required: false
         default: ""
 
+# ── Schema version — BUMP THIS when db.py SCHEMA_VERSION changes ──────────────
+# Incrementing this string invalidates the cached DB so the fresh schema
+# is created from scratch on next run. Old caches are auto-expired by GitHub.
+env:
+  DB_CACHE_VERSION: "v5"
+
 jobs:
   track:
     name: Collect & Alert
@@ -36,6 +40,7 @@ jobs:
          github.event.inputs.mode != 'evolve' &&
          github.event.inputs.mode != 'dashboard')
       )
+
     steps:
       - uses: actions/checkout@v4
 
@@ -52,20 +57,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # DB cache key includes DB_CACHE_VERSION so stale schemas are never restored
       - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: tracker-db-${{ github.run_id }}
-          restore-keys: tracker-db-
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-${{ github.run_id }}
+          restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
 
       - name: Run tracker
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
-          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
-          GITHUB_RUN_ID:      ${{ github.run_id }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:        ${{ secrets.DASHBOARD_URL }}
+          CANLII_API_KEY:       ${{ secrets.CANLII_API_KEY }}
+          GITHUB_RUN_ID:        ${{ github.run_id }}
+          GITHUB_REPOSITORY:    ${{ github.repository }}
           SIGNAL_LOOKBACK_DAYS: "21"
         run: |
           if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
@@ -81,7 +87,7 @@ jobs:
         if: always()
         with:
           path: law_firm_tracker.db
-          key: tracker-db-${{ github.run_id }}
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-${{ github.run_id }}
 
       - name: Commit dashboard
         run: |
@@ -106,6 +112,7 @@ jobs:
         (github.event_name == 'schedule' && github.event.schedule == '0 8 * * *') ||
         (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'evolve')
       )
+
     steps:
       - uses: actions/checkout@v4
 
@@ -119,8 +126,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: tracker-db-evolve-${{ github.run_id }}
-          restore-keys: tracker-db-
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-evolve-${{ github.run_id }}
+          restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
 
       - name: Run evolution
         run: python main.py --evolve
@@ -130,7 +137,7 @@ jobs:
         if: always()
         with:
           path: law_firm_tracker.db
-          key: tracker-db-evolve-${{ github.run_id }}
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-evolve-${{ github.run_id }}
 
       - name: Commit learned weights
         run: |
@@ -147,6 +154,7 @@ jobs:
       success() && (
         github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'dashboard'
       )
+
     steps:
       - uses: actions/checkout@v4
 
@@ -160,8 +168,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: tracker-db-dash-${{ github.run_id }}
-          restore-keys: tracker-db-
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-dash-${{ github.run_id }}
+          restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
 
       - name: Regenerate dashboard
         run: python main.py --dashboard
