@@ -24,3 +24,9 @@ docs/test_harness_*.json
 # macOS
 .DS_Store
 Thumbs.db
+law_firm_tracker.db-shm
+law_firm_tracker.db-wal
+law_firm_tracker.db
+*.db-shm
+*.db-wal
+learned_weights.json

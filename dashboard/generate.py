@@ -107,13 +107,13 @@ def _load_data(db_path: str) -> dict:
     cut_7d   = (now - timedelta(days=7)).strftime("%Y-%m-%d")
     cut_prev = (now - timedelta(days=14)).strftime("%Y-%m-%d")  # week 2-3 ago
 
-    # ── Signals (30d) — BUG FIX: column is 'dept_score' not 'department_score' ──
+    # ── Signals (30d) ─────────────────────────────────────────────────────────
     cur.execute("""
         SELECT firm_id, firm_name, signal_type, title, url,
-               department, dept_score, collected_at
+               department, department_score AS dept_score, scraped_at AS collected_at
         FROM signals
-        WHERE collected_at >= ?
-        ORDER BY dept_score DESC, collected_at DESC
+        WHERE scraped_at >= ?
+        ORDER BY department_score DESC, scraped_at DESC
     """, (cut_30d,))
     signals = [dict(r) for r in cur.fetchall()]
 
@@ -141,14 +141,14 @@ def _load_data(db_path: str) -> dict:
     # ── Signal type breakdown (30d) ────────────────────────────────────────────
     cur.execute("""
         SELECT signal_type, COUNT(*) as cnt FROM signals
-        WHERE collected_at >= ? GROUP BY signal_type ORDER BY cnt DESC
+        WHERE scraped_at >= ? GROUP BY signal_type ORDER BY cnt DESC
     """, (cut_30d,))
     by_type = [dict(r) for r in cur.fetchall()]
 
     # ── Firm activity (30d) ────────────────────────────────────────────────────
     cur.execute("""
         SELECT firm_name, COUNT(*) as cnt FROM signals
-        WHERE collected_at >= ? GROUP BY firm_name ORDER BY cnt DESC LIMIT 15
+        WHERE scraped_at >= ? GROUP BY firm_name ORDER BY cnt DESC LIMIT 15
     """, (cut_30d,))
     by_firm = [dict(r) for r in cur.fetchall()]
 

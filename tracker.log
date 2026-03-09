@@ -26506,3 +26506,20 @@ ValueError: not enough values to unpack (expected 4, got 3)
 2026-03-07 08:11:58,560 [INFO] signals: Expansion alerts generated: 3
 2026-03-07 08:11:58,582 [INFO] notifier: Telegram combined digest sent (1 message)
 2026-03-07 08:11:58,600 [INFO] main: Combined digest sent — 3 expansion alert(s), 16 new signal(s)
+2026-03-09 14:52:49,869 [INFO] main: ======================================================================
+2026-03-09 14:52:49,869 [INFO] main: Law Firm Expansion Tracker v3  —  2026-03-09 14:52 UTC
+2026-03-09 14:52:49,869 [INFO] main: Scrapers: 28  |  Firms: 1
+2026-03-09 14:52:49,869 [INFO] main: ======================================================================
+2026-03-09 14:52:49,874 [INFO] database: DB ready (schema v5): law_firm_tracker.db
+2026-03-09 14:52:49,875 [INFO] main: 
+──────────────────────────────────────────────────
+2026-03-09 14:52:49,875 [INFO] main: Processing: Osler, Hoskin & Harcourt LLP
+2026-03-09 14:52:51,426 [INFO] main:   LateralTrackScraper                    0 signals  (0 new)
+2026-03-09 14:52:51,426 [INFO] main:   DealTrackScraper                       0 signals  (0 new)
+2026-03-09 14:52:51,426 [INFO] main:   MediaScraper                           0 signals  (0 new)
+2026-03-09 14:52:58,644 [INFO] main:   OfficeTracker                          0 signals  (0 new)
+2026-03-09 14:53:05,273 [INFO] main:   RecruiterScraper                       0 signals  (0 new)
+2026-03-09 14:53:05,273 [INFO] main:   GoogleNewsScraper                      0 signals  (0 new)
+2026-03-09 14:53:07,154 [INFO] main:   PressScraper                           0 signals  (0 new)
+2026-03-09 14:53:09,479 [INFO] main:   PublicationsScraper                    0 signals  (0 new)
+2026-03-09 14:53:16,651 [INFO] main:   WebsiteScraper                         0 signals  (0 new)
