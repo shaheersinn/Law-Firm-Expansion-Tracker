@@ -29,3 +29,4 @@ law_firm_tracker.db-wal
 law_firm_tracker.db
 *.db-shm
 *.db-wal
+learned_weights.json
