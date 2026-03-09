@@ -2,10 +2,12 @@ name: Law Firm Expansion Tracker
 
 on:
   schedule:
-    # Full collect + alert — daily 7 AM UTC
+    # Daily full collect at 07:00 UTC
     - cron: "0 7 * * *"
-    # Self-learning evolution — every 2 hours
-    - cron: "0 */2 * * *"
+    # Weekly digest on Sunday at 09:00 UTC
+    - cron: "0 9 * * 0"
+    # Daily self-learning evolution at 08:00 UTC
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -18,21 +20,22 @@ on:
           - digest
           - evolve
           - dashboard
-
-permissions:
-  contents: write
+      firm:
+        description: "Single firm ID (e.g. osler) — leave blank for all"
+        required: false
+        default: ""
 
 jobs:
-  # ── Collect + Alert ───────────────────────────────────────────────────────
   track:
-    name: "Collect & Alert"
+    name: Collect & Alert
     runs-on: ubuntu-latest
     if: >
-      (github.event_name == 'schedule' && github.event.schedule == '0 7 * * *') ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.mode != 'evolve' &&
-       github.event.inputs.mode != 'dashboard')
-
+      success() && (
+        (github.event_name == 'schedule' && github.event.schedule == '0 7 * * *') ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.event.inputs.mode != 'evolve' &&
+         github.event.inputs.mode != 'dashboard')
+      )
     steps:
       - uses: actions/checkout@v4
 
@@ -40,8 +43,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache pip
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
@@ -50,8 +52,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore database
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
           key: tracker-db-${{ github.run_id }}
@@ -59,27 +60,30 @@ jobs:
 
       - name: Run tracker
         env:
-          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:        ${{ secrets.DASHBOARD_URL }}
-          CANLII_API_KEY:       ${{ secrets.CANLII_API_KEY }}
-          GITHUB_RUN_ID:        ${{ github.run_id }}
-          GITHUB_REPOSITORY:    ${{ github.repository }}
-          SIGNAL_LOOKBACK_DAYS: 21
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          SIGNAL_LOOKBACK_DAYS: "21"
         run: |
           if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
             python main.py --digest
+          elif [ -n "${{ github.event.inputs.firm }}" ]; then
+            python main.py --firm ${{ github.event.inputs.firm }}
           else
             python main.py
           fi
 
-      - name: Save database to cache
+      - name: Save DB cache
         uses: actions/cache/save@v4
+        if: always()
         with:
           path: law_firm_tracker.db
           key: tracker-db-${{ github.run_id }}
 
-      - name: Commit dashboard to docs/
+      - name: Commit dashboard
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -87,22 +91,21 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update dashboard [skip ci]"
           git push
 
-      - name: Upload tracker log
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: tracker-log-${{ github.run_id }}
           path: tracker.log
           retention-days: 14
 
-  # ── Self-Learning Evolution (every 2 hours) ───────────────────────────────
   evolve:
-    name: "Self-Learning Evolution"
+    name: Self-Learning Evolution
     runs-on: ubuntu-latest
     if: >
-      (github.event_name == 'schedule' && github.event.schedule == '0 */2 * * *') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'evolve')
-
+      success() && (
+        (github.event_name == 'schedule' && github.event.schedule == '0 8 * * *') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'evolve')
+      )
     steps:
       - uses: actions/checkout@v4
 
@@ -110,57 +113,40 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # BUG-9 FIX: restore DB, evolve, then SAVE back
-      - name: Restore database
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
           key: tracker-db-evolve-${{ github.run_id }}
-          restore-keys: |
-            tracker-db-evolve-
-            tracker-db-
+          restore-keys: tracker-db-
 
-      - name: Run evolution cycle
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_RUN_ID:      ${{ github.run_id }}
-          GITHUB_REPOSITORY:  ${{ github.repository }}
+      - name: Run evolution
         run: python main.py --evolve
 
-      # BUG-9 FIX: save updated DB with evolved weights back to cache
-      - name: Save database with evolved weights
+      - name: Save DB cache
         uses: actions/cache/save@v4
+        if: always()
         with:
           path: law_firm_tracker.db
-          key: tracker-db-${{ github.run_id }}-evolved
+          key: tracker-db-evolve-${{ github.run_id }}
 
-      - name: Upload evolution log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evolve-log-${{ github.run_id }}
-          path: tracker.log
-          retention-days: 7
+      - name: Commit learned weights
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add learned_weights.json || true
+          git diff --cached --quiet || git commit -m "chore: update learned weights [skip ci]"
+          git push
 
-  # ── Dashboard only ────────────────────────────────────────────────────────
   dashboard:
-    name: "Regenerate Dashboard"
+    name: Regenerate Dashboard
     runs-on: ubuntu-latest
     if: >
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.mode == 'dashboard'
-
+      success() && (
+        github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'dashboard'
+      )
     steps:
       - uses: actions/checkout@v4
 
@@ -171,15 +157,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore database
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: tracker-db-${{ github.run_id }}
+          key: tracker-db-dash-${{ github.run_id }}
           restore-keys: tracker-db-
 
       - name: Regenerate dashboard
-        run: python main.py --digest
+        run: python main.py --dashboard
 
       - name: Commit dashboard
         run: |
