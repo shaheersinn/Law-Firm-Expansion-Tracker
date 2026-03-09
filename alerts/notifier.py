@@ -1,246 +1,160 @@
 """
-Notifier — sends Telegram digest with rich formatting.
-
-Always links to https://law-firm-tracker.vercel.app/ (hardcoded default,
-overridable via DASHBOARD_URL env var).
-
-Includes:
-  - Vercel dashboard link at top of every message
-  - Strength badges  🟡 🟠 🔴 🚨
-  - Signal source breakdown per alert
-  - Evidence links (top 3 per alert)
-  - Corroboration source list
-  - GitHub Actions run link
-  - Instant lateral-hire flash alert
+Telegram notifier.
+Sends a single combined digest message per run.
 """
 
 import logging
 import os
-import html
-from datetime import datetime, timezone
-
 import requests
 
-logger = logging.getLogger(__name__)
-
-TELEGRAM_API  = "https://api.telegram.org/bot{token}/sendMessage"
-DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://law-firm-tracker.vercel.app/")
-
-SIGNAL_EMOJI = {
-    "lateral_hire":    "🔀",
-    "ranking":         "🏆",
-    "bar_leadership":  "🏅",
-    "court_record":    "📋",
-    "job_posting":     "💼",
-    "recruit_posting": "🎓",
-    "press_release":   "📰",
-    "publication":     "📄",
-    "practice_page":   "🌐",
-    "attorney_profile":"👔",
-}
-
-STRENGTH = [
-    (12.0, "🚨 Very Strong"),
-    (8.0,  "🔴 Strong"),
-    (5.0,  "🟠 Moderate"),
-    (0.0,  "🟡 Emerging"),
-]
+logger = logging.getLogger("alerts.notifier")
 
 DEPT_EMOJI = {
-    "Corporate/M&A":         "🤝",
-    "Capital Markets":       "📈",
-    "Private Equity":        "💰",
-    "Litigation":            "⚖️",
-    "Tax":                   "🧾",
-    "Restructuring":         "🔄",
-    "Real Estate":           "🏢",
-    "Employment":            "👷",
-    "IP":                    "💡",
-    "Data Privacy":          "🔒",
-    "ESG":                   "🌿",
-    "Energy":                "⚡",
-    "Financial Services":    "🏦",
-    "Competition":           "🔍",
-    "Healthcare":            "🏥",
-    "Immigration":           "🛂",
-    "Infrastructure":        "🏗️",
+    "Corporate/M&A": "🏢",
+    "Private Equity": "💰",
+    "Capital Markets": "📈",
+    "Litigation": "⚖️",
+    "Restructuring": "🔄",
+    "Real Estate": "🏗️",
+    "Tax": "📋",
+    "Employment": "👔",
+    "IP": "💡",
+    "Data Privacy": "🔒",
+    "ESG": "🌿",
+    "Energy": "⚡",
+    "Financial Services": "🏦",
+    "Competition": "🔍",
+    "Healthcare": "🏥",
+    "Immigration": "✈️",
+    "Infrastructure": "🛣️",
 }
 
+TYPE_EMOJI = {
+    "lateral_hire":       "🚀",
+    "bar_leadership":     "🏅",
+    "ranking":            "🏆",
+    "office_lease":       "🏢",
+    "alumni_hire":        "🎓",
+    "job_posting":        "💼",
+    "deal_record":        "📝",
+    "court_record":       "⚖️",
+    "press_release":      "📣",
+    "thought_leadership": "✍️",
+    "diversity_signal":   "🌈",
+    "ip_filing":          "💡",
+    "bar_speaking":       "🎤",
+    "recruit_posting":    "🎓",
+    "publication":        "📚",
+}
 
-def _e(s: str) -> str:
-    return html.escape(str(s), quote=False)
+TIER_LABEL = {1: "🔴 Tier 1", 2: "🟡 Tier 2", 3: "🟢 Tier 3"}
 
-
-def _strength(score: float) -> str:
-    for threshold, label in STRENGTH:
-        if score >= threshold:
-            return label
-    return "🟡 Emerging"
-
-
-def _dept_emoji(dept: str) -> str:
-    for key, emoji in DEPT_EMOJI.items():
-        if key.lower() in dept.lower():
-            return emoji
-    return "🏛"
+MAX_MSG_LEN = 4000
 
 
 class Notifier:
     def __init__(self, config):
         self.token   = config.TELEGRAM_BOT_TOKEN
         self.chat_id = config.TELEGRAM_CHAT_ID
-        self.run_url = (
-            f"https://github.com/{os.getenv('GITHUB_REPOSITORY', '')}"
-            f"/actions/runs/{os.getenv('GITHUB_RUN_ID', '')}"
-        )
+        self.dash_url = os.getenv("DASHBOARD_URL", "")
+        self.run_id   = os.getenv("GITHUB_RUN_ID", "")
+        self.repo     = os.getenv("GITHUB_REPOSITORY", "")
 
-    def send_combined_digest(self, alerts, website_changes, new_signals=None):
+    def send_combined_digest(
+        self,
+        alerts: list[dict],
+        website_changes: list[dict],
+        new_signals: list[dict] | None = None,
+    ):
         if not self.token or not self.chat_id:
-            logger.warning("Telegram not configured — skipping")
+            logger.warning("Telegram not configured — skipping notification")
             return
 
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%B %d, %Y")
         new_signals = new_signals or []
-        if not alerts and not website_changes and not new_signals:
-            logger.info("Nothing to report — no Telegram message sent")
-            return
 
-        msg = self._build(alerts, website_changes, new_signals)
-        self._send(msg)
-
-    def send_lateral_flash(self, signal: dict):
-        """Instant alert for a high-confidence lateral hire."""
-        if not self.token or not self.chat_id:
-            return
-        dept = signal.get("department", "")
-        emoji = _dept_emoji(dept)
-        msg = (
-            f"⚡ <b>LATERAL HIRE DETECTED</b>\n\n"
-            f"<b>{_e(signal['firm_name'])}</b>\n"
-            f"{emoji} {_e(dept)}\n\n"
-            f"📌 {_e(signal['title'][:200])}\n\n"
-            f'🖥 <a href="{_e(DASHBOARD_URL)}">View Dashboard</a>'
-        )
-        self._send(msg)
-
-    def _build(self, alerts, changes, new_signals) -> str:
-        now  = datetime.now(timezone.utc)
-        date = now.strftime("%a %b %d, %Y · %H:%M UTC")
+        # Count signal types
+        from collections import Counter
+        type_counts = Counter(s.get("signal_type", "other") for s in new_signals)
 
         lines = [
-            "📊 <b>Law Firm Expansion Tracker</b>",
-            f"<i>{_e(date)}</i>",
-            "",
-            f'🖥 <b><a href="{_e(DASHBOARD_URL)}">law-firm-tracker.vercel.app</a></b>',
-            "─" * 30,
+            f"📊 *Law Firm Expansion Tracker*",
+            f"_{today}_",
         ]
+        if self.dash_url:
+            lines.append(f"🖥 [Open Live Dashboard]({self.dash_url})")
+        lines.append("─" * 34)
 
-        # ── Summary ──────────────────────────────────────────────────────────
-        sig_count  = len(new_signals)
-        firm_count = len({s["firm_id"] for s in new_signals}) if new_signals else 0
-        alert_count = len(alerts)
-
+        # Summary
         lines.append(
-            f"<b>{sig_count}</b> new signal(s) · "
-            f"<b>{firm_count}</b> firm(s) · "
-            f"<b>{alert_count}</b> alert(s)"
+            f"*{len(new_signals)}* new signal(s) · "
+            f"*{len(alerts)}* expansion alert(s)"
         )
-        lines.append("")
+        if type_counts:
+            top = ", ".join(f"{TYPE_EMOJI.get(t,'•')} {c} {t.replace('_',' ')}"
+                            for t, c in type_counts.most_common(4))
+            lines.append(f"_{top}_")
 
-        # ── Website changes ───────────────────────────────────────────────────
-        if changes:
-            lines.append(f"🔄 <b>{len(changes)} website change(s)</b>")
-            for ch in changes[:3]:
-                lines.append(f"  • {_e(ch['firm_name'])}")
-            lines.append("")
+        if not alerts and not website_changes:
+            lines.append("\n_No new expansion spikes this run._")
+            self._send("\n".join(lines))
+            return
 
-        # ── Expansion alerts ──────────────────────────────────────────────────
-        if not alerts:
-            lines.append("<i>No new expansion alerts this period.</i>")
-        else:
-            lines.append(f"<b>🚨 {len(alerts)} Expansion Alert(s)</b>")
-            lines.append("")
-
-            for i, a in enumerate(alerts[:10], 1):
-                strength = _strength(a["expansion_score"])
-                dept     = a.get("department", "")
-                emoji    = _dept_emoji(dept)
-                spike    = "  🔥 SPIKE" if a.get("is_spike") else ""
-                mult_str = ""
-                if a.get("baseline_mult", 1.0) > 1.3:
-                    mult_str = f"  ↑{a['baseline_mult']}× baseline"
-
-                lines.append(f"<b>{i}. {_e(a['firm_name'])}</b>")
+        # Expansion alerts
+        if alerts:
+            lines.append(f"\n*🔔 {len(alerts)} Expansion Alert(s)*\n")
+            for i, alert in enumerate(alerts[:12], 1):
+                dept_e = DEPT_EMOJI.get(alert["department"], "📌")
                 lines.append(
-                    f"  {emoji} <b>{_e(dept)}</b>  ·  {strength}{spike}"
+                    f"{i}. 🏛 *{alert['firm_name']}*\n"
+                    f"   {dept_e} {alert['department']}"
+                    + (" 🔥" if alert.get("z_score", 0) >= 2.0 else "")
+                    + f"\n   Score: *{alert['expansion_score']}*"
+                    + (f" ↑{alert['z_score']}× baseline" if alert.get("z_score") else "")
+                    + f"\n   Signals: {alert['signal_count']}"
                 )
-                lines.append(
-                    f"  Score: <b>{a['expansion_score']}</b>{_e(mult_str)}"
-                    f"  ·  {a['signal_count']} signal(s)"
-                )
-
-                # Source breakdown
-                bd = a.get("signal_breakdown", {})
-                if bd:
-                    parts = [
-                        f"{SIGNAL_EMOJI.get(t, '•')} {n} {t.replace('_', ' ')}"
-                        for t, n in sorted(bd.items(), key=lambda x: -x[1])[:4]
-                    ]
-                    lines.append("  " + " · ".join(parts))
-
-                # Evidence links
-                for s in a.get("signals", [])[:3]:
-                    em    = SIGNAL_EMOJI.get(s["signal_type"], "•")
-                    url   = s.get("url", "")
-                    title = _e(s["title"][:80])
+                # Top 2 signal bullets
+                for sig in alert.get("top_signals", [])[:2]:
+                    te = TYPE_EMOJI.get(sig.get("signal_type", ""), "•")
+                    title = sig.get("title", "")[:90].replace("*", "").replace("[", "").replace("]", "")
+                    url   = sig.get("url", "")
                     if url:
-                        lines.append(f'  {em} <a href="{_e(url)}">{title}</a>')
+                        lines.append(f"   {te} [{title}]({url})")
                     else:
-                        lines.append(f"  {em} <i>{title}</i>")
-
-                # Corroboration
-                src = a.get("source_types", [])
-                if len(src) >= 2:
-                    lines.append(f"  <i>Sources: {', '.join(src[:4])}</i>")
-
+                        lines.append(f"   {te} {title}")
                 lines.append("")
 
-        # ── Footer ────────────────────────────────────────────────────────────
-        lines.append(f'🖥 <a href="{_e(DASHBOARD_URL)}">View full dashboard →</a>')
+        # Website changes
+        if website_changes:
+            lines.append(f"*🔄 {len(website_changes)} Website Change(s)*")
+            for chg in website_changes[:5]:
+                lines.append(f"  • *{chg['firm_name']}* — [{chg['title']}]({chg['url']})")
 
-        if os.getenv("GITHUB_RUN_ID"):
-            lines.append(f'📋 <a href="{_e(self.run_url)}">Actions log</a>')
+        # Footer
+        if self.run_id and self.repo:
+            log_url = f"https://github.com/{self.repo}/actions/runs/{self.run_id}"
+            lines.append(f"\n[📋 View Run Log]({log_url})")
 
-        return "\n".join(lines)
+        msg = "\n".join(lines)
+        self._send(msg)
 
     def _send(self, text: str):
-        url = TELEGRAM_API.format(token=self.token)
-        for chunk in _chunk(text, 4000):
+        # Telegram has a 4096-char limit — split if needed
+        chunks = [text[i:i + MAX_MSG_LEN] for i in range(0, len(text), MAX_MSG_LEN)]
+        for chunk in chunks:
             try:
-                resp = requests.post(url, json={
-                    "chat_id":                  self.chat_id,
-                    "text":                     chunk,
-                    "parse_mode":               "HTML",
-                    "disable_web_page_preview": True,
-                }, timeout=15)
-                if resp.ok:
-                    logger.info("Telegram delivered")
-                else:
-                    logger.error(f"Telegram {resp.status_code}: {resp.text[:300]}")
+                resp = requests.post(
+                    f"https://api.telegram.org/bot{self.token}/sendMessage",
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": chunk,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True,
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                logger.info("Telegram delivered")
             except Exception as e:
-                logger.error(f"Telegram send failed: {e}")
-
-
-def _chunk(text: str, max_len: int) -> list:
-    if len(text) <= max_len:
-        return [text]
-    parts = []
-    while text:
-        if len(text) <= max_len:
-            parts.append(text)
-            break
-        cut = text.rfind("\n", 0, max_len)
-        if cut == -1:
-            cut = max_len
-        parts.append(text[:cut])
-        text = text[cut:].lstrip("\n")
-    return parts
+                logger.error(f"Telegram failed: {e}")
