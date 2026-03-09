@@ -2,9 +2,11 @@
 Law Firm Expansion Tracker — main entry point.
 
 Run modes:
-  python main.py            → full collection + analysis + weekly digest
-  python main.py --digest   → send weekly digest from existing DB data only
-  python main.py --firm osler → run for a single firm (testing)
+  python main.py                → full collection + analysis + digest
+  python main.py --digest       → send weekly digest from existing DB only
+  python main.py --firm osler   → run for a single firm (testing)
+  python main.py --evolve       → run self-learning evolution cycle
+  python main.py --dashboard    → regenerate dashboard from existing data
 """
 
 import logging
@@ -45,6 +47,7 @@ from scrapers.event import EventScraper
 from scrapers.signal_crossref import SignalCrossRefScraper
 from analysis.signals import ExpansionAnalyzer
 from alerts.notifier import Notifier
+from dashboard.generator import DashboardGenerator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,22 +59,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+# Scraper order matters: lateral/media first, crossref last
+SCRAPER_CLASSES = [
+    LateralTrackScraper,
+    DealTrackScraper,
+    MediaScraper,
+    OfficeTracker,
+    RecruiterScraper,
+    GoogleNewsScraper,
+    PressScraper,
+    PublicationsScraper,
+    WebsiteScraper,
+    ChambersScraper,
+    AwardsScraper,
+    BarAssociationScraper,
+    JobsScraper,
+    LawSchoolScraper,
+    RSSFeedScraper,
+    GovTrackScraper,
+    SedarScraper,
+    ConferenceScraper,
+    LobbyistScraper,
+    CanLIIScraper,
+    LinkedInScraper,
+    PodcastScraper,
+    AlumniTrackScraper,
+    ThoughtLeaderScraper,
+    DiversityScraper,
+    CIPOScraper,
+    EventScraper,
+    # SignalCrossRefScraper added per-firm below (needs run context)
+]
 
-def run(firms_to_run: list = None, digest_only: bool = False):
+
+def run(firms_to_run: list | None = None, digest_only: bool = False):
     logger.info("=" * 70)
-    logger.info(f"Law Firm Expansion Tracker — {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
+    logger.info(f"Law Firm Expansion Tracker v3  —  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    logger.info(f"Scrapers: {len(SCRAPER_CLASSES) + 1}  |  Firms: {len(firms_to_run or FIRMS)}")
     logger.info("=" * 70)
 
     config = Config()
-    db = Database(config.DB_PATH)
-    notifier = Notifier(config)
-    analyzer = ExpansionAnalyzer(db)
+    db     = Database(config.DB_PATH)
+    notifier  = Notifier(config)
+    analyzer  = ExpansionAnalyzer(db)
+    dashboard = DashboardGenerator(db)
 
     target_firms = firms_to_run or FIRMS
 
     if digest_only:
         logger.info("Digest-only mode — skipping scraping")
-        _send_digest(db, analyzer, notifier)
+        _send_digest(db, analyzer, notifier, dashboard)
         db.close()
         return
 
@@ -79,75 +116,56 @@ def run(firms_to_run: list = None, digest_only: bool = False):
     #  COLLECTION PHASE
     # ------------------------------------------------------------------ #
 
-    scrapers = [
-        LateralTrackScraper(),
-        DealTrackScraper(),
-        MediaScraper(),
-        OfficeTracker(),
-        RecruiterScraper(),
-        GoogleNewsScraper(),
-        PressScraper(),
-        PublicationsScraper(),
-        WebsiteScraper(),
-        ChambersScraper(),
-        AwardsScraper(),
-        BarAssociationScraper(),
-        JobsScraper(),
-        LawSchoolScraper(),
-        RSSFeedScraper(),
-        GovTrackScraper(),
-        SedarScraper(),
-        ConferenceScraper(),
-        LobbyistScraper(),
-        CanLIIScraper(),
-        LinkedInScraper(),
-        PodcastScraper(),
-        AlumniTrackScraper(),
-        ThoughtLeaderScraper(),
-        DiversityScraper(),
-        CIPOScraper(),
-        EventScraper(),
-        SignalCrossRefScraper(),
-    ]
-
-    all_new_signals = []
+    scrapers = [cls() for cls in SCRAPER_CLASSES]
+    all_new_signals: list[dict] = []
 
     for firm in target_firms:
-        logger.info(f"\n{'─'*50}")
+        logger.info(f"\n{'─' * 50}")
         logger.info(f"Processing: {firm['name']}")
+
+        firm_run_signals: list[dict] = []
 
         for scraper in scrapers:
             try:
-                signals = scraper.fetch(firm)
+                fetched = scraper.fetch(firm)
                 new_count = 0
-
-                for signal in signals:
+                for signal in fetched:
+                    firm_run_signals.append(signal)
                     if db.is_new_signal(signal):
                         db.save_signal(signal)
                         all_new_signals.append(signal)
                         new_count += 1
-
-                        # Save website hash for change detection
                         if signal["signal_type"] == "website_snapshot":
-                            db.save_website_hash(firm["id"], signal["url"], signal["body"])
+                            db.save_website_hash(firm["id"], signal["url"], signal.get("body", ""))
 
-                logger.info(f"  {scraper.name}: {new_count} new signal(s)")
-
+                logger.info(f"  {scraper.name:<38} {len(fetched)} signals  ({new_count} new)")
             except Exception as e:
                 logger.error(f"  {scraper.name} failed for {firm['short']}: {e}", exc_info=True)
 
-    logger.info(f"\nTotal new signals collected: {len(all_new_signals)}")
+        # Cross-ref scraper gets the full run context for this firm
+        try:
+            crossref = SignalCrossRefScraper(current_run_signals=firm_run_signals)
+            fetched = crossref.fetch(firm)
+            new_count = 0
+            for signal in fetched:
+                if db.is_new_signal(signal):
+                    db.save_signal(signal)
+                    all_new_signals.append(signal)
+                    new_count += 1
+            logger.info(f"  {'SignalCrossRefScraper':<38} {len(fetched)} signals  ({new_count} new)")
+        except Exception as e:
+            logger.error(f"  SignalCrossRefScraper failed for {firm['short']}: {e}", exc_info=True)
+
+    logger.info(f"\nTotal new signals this run: {len(all_new_signals)}")
 
     # ------------------------------------------------------------------ #
     #  ANALYSIS PHASE
     # ------------------------------------------------------------------ #
 
-    # Get all signals for this week (including previously collected)
-    weekly_signals = db.get_signals_this_week()
+    weekly_signals  = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes = analyzer.detect_website_changes(all_new_signals)
+    website_changes  = analyzer.detect_website_changes(all_new_signals)
 
-    # Save weekly scores to DB
     for alert in expansion_alerts:
         db.save_weekly_score(
             firm_id=alert["firm_id"],
@@ -159,24 +177,27 @@ def run(firms_to_run: list = None, digest_only: bool = False):
         )
 
     logger.info(f"Expansion alerts: {len(expansion_alerts)}")
-    logger.info(f"Website changes: {len(website_changes)}")
 
     # ------------------------------------------------------------------ #
-    #  NOTIFICATION — always send ONE combined digest after every run
+    #  NOTIFICATION + DASHBOARD
     # ------------------------------------------------------------------ #
 
-    _send_digest(db, analyzer, notifier, new_signals=all_new_signals)
-
+    _send_digest(db, analyzer, notifier, dashboard, new_signals=all_new_signals)
     db.close()
     logger.info("\nDone.\n")
 
 
-def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier, new_signals: list = None):
-    weekly_signals = db.get_signals_this_week()
+def _send_digest(
+    db: Database,
+    analyzer: ExpansionAnalyzer,
+    notifier: Notifier,
+    dashboard: DashboardGenerator,
+    new_signals: list | None = None,
+):
+    weekly_signals   = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes = analyzer.detect_website_changes([])
+    website_changes  = analyzer.detect_website_changes([])
 
-    # Filter out alerts already sent this week
     new_alerts = [
         a for a in expansion_alerts
         if not db.was_alert_sent(a["firm_id"], a["department"])
@@ -185,20 +206,32 @@ def _send_digest(db: Database, analyzer: ExpansionAnalyzer, notifier: Notifier, 
     notifier.send_combined_digest(new_alerts, website_changes, new_signals=new_signals or [])
     for a in new_alerts:
         db.mark_alert_sent(a["firm_id"], a["department"], a["expansion_score"])
-    logger.info(f"Combined digest sent — {len(new_alerts)} expansion alert(s), {len(new_signals or [])} new signal(s)")
+
+    dashboard.generate()
+
+    logger.info(
+        f"Digest: {len(new_alerts)} new alerts"
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--digest",  action="store_true", help="Send digest from existing data without scraping")
-    parser.add_argument("--dashboard", action="store_true", help="Generate dashboard")
-    parser.add_argument("--evolve",  action="store_true", help="Run daily self-learning evolution cycle")
-    parser.add_argument("--firm",    type=str, help="Run for a single firm ID only (e.g. osler)")
+    parser.add_argument("--digest",    action="store_true")
+    parser.add_argument("--dashboard", action="store_true")
+    parser.add_argument("--evolve",    action="store_true")
+    parser.add_argument("--firm",      type=str)
     args = parser.parse_args()
 
     if args.evolve:
         from learning.evolution import run_evolution
         run_evolution()
+        sys.exit(0)
+
+    if args.dashboard:
+        config = Config()
+        db = Database(config.DB_PATH)
+        DashboardGenerator(db).generate()
+        db.close()
         sys.exit(0)
 
     target = None
