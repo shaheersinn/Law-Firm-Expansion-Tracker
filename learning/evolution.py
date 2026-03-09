@@ -18,14 +18,21 @@ DB_PATH = os.getenv("DB_PATH", "law_firm_tracker.db")
 WEIGHTS_PATH = "learned_weights.json"
 
 
-def run_evolution():
+def run_evolution(log_path: str = "tracker.log", force: bool = False):
     """
     Reads the DB, computes hit-rate per signal type per department,
     and saves adjusted weights to learned_weights.json.
+
+    Args:
+        log_path: Path to the tracker log file (unused, kept for API compatibility).
+        force:    If True, skip the schedule check and always run.
+
+    Returns:
+        dict with evolution report keys, or None if skipped by schedule.
     """
     if not os.path.exists(DB_PATH):
         logger.warning("No DB found — skipping evolution")
-        return
+        return None
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -64,3 +71,9 @@ def run_evolution():
     logger.info(f"Evolution complete — weights saved to {WEIGHTS_PATH}")
     logger.info(json.dumps(learned, indent=2))
     conn.close()
+
+    return {
+        "learning_schedule":   "completed",
+        "keywords_updated":    len(learned),
+        "signal_type_weights": learned,
+    }

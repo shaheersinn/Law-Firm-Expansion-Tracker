@@ -109,7 +109,7 @@ def make_signals(cycle: int, n: int = None) -> list[dict]:
         n = random.randint(60, 280)
     signals = []
     now = datetime.now(timezone.utc)
-    clf = DepartmentClassifier(os.environ["DB_PATH"])
+    clf = DepartmentClassifier()
 
     for i in range(n):
         firm = random.choice(FIRMS)
@@ -135,7 +135,7 @@ def make_signals(cycle: int, n: int = None) -> list[dict]:
 
         # Vary seen_at slightly within last 3 days
         delta = timedelta(hours=random.randint(0, 72))
-        seen_at = (now - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+        scraped_at = (now - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         signals.append({
             "firm_id":         firm["id"],
@@ -146,7 +146,7 @@ def make_signals(cycle: int, n: int = None) -> list[dict]:
             "body":            body,
             "department":      dept,
             "department_score":dept_score,
-            "seen_at":         seen_at,
+            "scraped_at":      scraped_at,
         })
 
     return signals
@@ -156,17 +156,16 @@ def insert_signals(db: Database, signals: list[dict]) -> list[dict]:
     """Insert signals, return those that are genuinely new (de-dup)."""
     new = []
     for s in signals:
-        key = hashlib.md5(f"{s['firm_id']}{s['signal_type']}{s['title'][:80]}".encode()).hexdigest()
         try:
             db.conn.execute("""
                 INSERT OR IGNORE INTO signals
                   (firm_id, firm_name, signal_type, title, url, body,
-                   department, department_score, seen_at, dedup_key)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                   department, department_score, scraped_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
             """, (s["firm_id"], s["firm_name"], s["signal_type"],
                   s["title"], s["url"], s["body"],
                   s["department"], s["department_score"],
-                  s["seen_at"], key))
+                  s["scraped_at"]))
             if db.conn.execute("SELECT changes()").fetchone()[0]:
                 new.append(s)
         except Exception:
