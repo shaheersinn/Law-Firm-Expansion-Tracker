@@ -56,7 +56,9 @@ TYPE_EMOJI: dict[str, str] = {
     "website_snapshot":   "🔄",
 }
 
-MAX_MSG_LEN = 4000
+MAX_MSG_LEN    = 4000   # Telegram limit is 4096; leave headroom for chunking
+MAX_TITLE_LEN  = 80    # Truncation length for signal titles in the digest
+MSG_BUFFER_SIZE = 200  # Safety buffer to account for tail/footer bytes when checking length
 
 # ── Module-level helper functions ─────────────────────────────────────────────
 
@@ -201,7 +203,7 @@ class Notifier:
                 for sig in alert.get("top_signals", [])[:2]:
                     te    = TYPE_EMOJI.get(sig.get("signal_type", ""), "•")
                     raw_t = sig.get("title", "")
-                    title = _clean_title(raw_t)[:80].replace("*", "").replace("[", "").replace("]", "")
+                    title = _clean_title(raw_t)[:MAX_TITLE_LEN].replace("*", "").replace("[", "").replace("]", "")
                     url   = sig.get("url", "")
                     if url:
                         block_lines.append(f"   {te} [{title}]({url})")
@@ -211,7 +213,7 @@ class Notifier:
                 block = "\n".join(block_lines)
                 # Check if adding this block would exceed the limit
                 candidate = header + "\n" + "\n".join(body_parts + [block])
-                if len(candidate) > MAX_MSG_LEN - 200:
+                if len(candidate) > MAX_MSG_LEN - MSG_BUFFER_SIZE:
                     # Add truncation notice and stop
                     remaining = n_alr - i + 1
                     body_parts.append(f"_… and {remaining} more alerts_")
@@ -343,7 +345,7 @@ class Notifier:
                     conf   = sig.get("confidence", 0)
                     conf_d = "●" if conf >= 0.7 else ("◑" if conf >= 0.4 else "○")
                     title  = (
-                        sig.get("title", "")[:85]
+                        sig.get("title", "")[:MAX_TITLE_LEN]
                         .replace("*", "").replace("[", "").replace("]", "")
                     )
                     url = sig.get("url", "")

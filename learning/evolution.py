@@ -24,7 +24,7 @@ def run_evolution(log_path: str | None = None, force: bool = False) -> dict | No
     and saves adjusted weights to learned_weights.json.
 
     Args:
-        log_path: Optional path to the run log (unused beyond future diagnostics).
+        log_path: Path to the run log, reserved for future log-based diagnostics.
         force:    When True, skip the schedule gate and always run.
 
     Returns:
@@ -74,8 +74,8 @@ def run_evolution(log_path: str | None = None, force: bool = False) -> dict | No
 
     learned: dict[str, float] = {}
     for sig_type, base_w in SIGNAL_WEIGHTS.items():
-        high_count = sum(v for v in type_dept_counts.get(sig_type, {}).values())
-        nudge = min(0.2, high_count * 0.005)
+        signal_count = sum(v for v in type_dept_counts.get(sig_type, {}).values())
+        nudge = min(0.2, signal_count * 0.005)
         new_w = base_w + nudge
         # EMA blend: smoothly move toward the observed weight
         old_w = existing.get(sig_type, new_w)
@@ -85,6 +85,8 @@ def run_evolution(log_path: str | None = None, force: bool = False) -> dict | No
     with open(WEIGHTS_PATH, "w") as f:
         json.dump(learned, f, indent=2)
 
+    # confirmed/false_pos tracking requires human-labelled feedback; set to 0 until
+    # the feedback pipeline (learning/feedback.py) populates these values.
     schedule.record_run(confirmed=0, false_pos=0)
     schedule_stats = schedule.get_stats()
 

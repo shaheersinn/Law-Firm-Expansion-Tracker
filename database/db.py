@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS signals (
     matched_keywords TEXT,
     source           TEXT,
     published_at     TEXT,
-    scraped_at       TEXT    NOT NULL DEFAULT '',
+    scraped_at       TEXT,
     seen_at          TEXT,
     dedup_key        TEXT,
     UNIQUE(firm_id, signal_type, url)
@@ -100,9 +100,9 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "matched_keywords": "TEXT DEFAULT ''",
         "source":           "TEXT DEFAULT ''",
         "published_at":     "TEXT DEFAULT ''",
-        "scraped_at":       "TEXT NOT NULL DEFAULT ''",
-        "seen_at":          "TEXT DEFAULT ''",
-        "dedup_key":        "TEXT DEFAULT ''",
+        "scraped_at":       "TEXT DEFAULT NULL",
+        "seen_at":          "TEXT DEFAULT NULL",
+        "dedup_key":        "TEXT DEFAULT NULL",
     },
     "website_hashes": {
         "checked_at": "TEXT NOT NULL DEFAULT ''",
@@ -202,7 +202,7 @@ class Database:
         rows = self.conn.execute(
             """SELECT title FROM signals
                WHERE firm_id=? AND signal_type=?
-               AND COALESCE(NULLIF(scraped_at,''), seen_at, '') >= ?""",
+               AND COALESCE(scraped_at, seen_at, '') >= ?""",
             (signal["firm_id"], signal["signal_type"], cutoff),
         ).fetchall()
         for r in rows:
@@ -248,8 +248,8 @@ class Database:
         ).isoformat()
         rows = self.conn.execute(
             """SELECT * FROM signals
-               WHERE COALESCE(NULLIF(scraped_at,''), seen_at, '') >= ?
-               ORDER BY COALESCE(NULLIF(scraped_at,''), seen_at, '') DESC""",
+               WHERE COALESCE(scraped_at, seen_at, '') >= ?
+               ORDER BY COALESCE(scraped_at, seen_at, '') DESC""",
             (cutoff,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -260,8 +260,8 @@ class Database:
         rows = self.conn.execute(
             """SELECT * FROM signals
                WHERE department=?
-               AND COALESCE(NULLIF(scraped_at,''), seen_at, '') >= ?
-               ORDER BY COALESCE(NULLIF(scraped_at,''), seen_at, '') DESC""",
+               AND COALESCE(scraped_at, seen_at, '') >= ?
+               ORDER BY COALESCE(scraped_at, seen_at, '') DESC""",
             (department, cutoff),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -278,15 +278,15 @@ class Database:
         this = self.conn.execute(
             """SELECT COUNT(*) c FROM signals
                WHERE firm_id=? AND department=?
-               AND COALESCE(NULLIF(scraped_at,''), seen_at, '') >= ?""",
+               AND COALESCE(scraped_at, seen_at, '') >= ?""",
             (firm_id, department, this_start),
         ).fetchone()["c"]
 
         prev = self.conn.execute(
             """SELECT COUNT(*) c FROM signals
                WHERE firm_id=? AND department=?
-               AND COALESCE(NULLIF(scraped_at,''), seen_at, '') >= ?
-               AND COALESCE(NULLIF(scraped_at,''), seen_at, '') < ?""",
+               AND COALESCE(scraped_at, seen_at, '') >= ?
+               AND COALESCE(scraped_at, seen_at, '') < ?""",
             (firm_id, department, prev_start, this_start),
         ).fetchone()["c"]
 
