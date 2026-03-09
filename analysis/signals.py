@@ -1,176 +1,132 @@
 """
-ExpansionAnalyzer — signal scoring and alert generation.
-
-BUG-2  FIX: reads dept_weight_multipliers from DB (written by evolution.py)
-             and multiplies scores — evolution weights NOW actually affect scoring.
-BUG-4  FIX: MIN_ALERT_SCORE raised to 5.0 + MIN_SOURCE_TYPES=2 gate.
-             Eliminates 26/26 all-noise scenario. Requires at least 2 distinct
-             scraper types before an alert fires.
+Expansion signal analyzer.
+- Groups signals by (firm, department)
+- Applies signal-type weights
+- Z-score spike detection vs 4-week rolling baseline
+- Website change detection
 """
 
-import math
+import hashlib
 import logging
+import statistics
 from collections import defaultdict
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("analysis.signals")
 
-# Minimum weighted score — raised from 3.5 to eliminate single-scraper noise
-MIN_ALERT_SCORE  = 5.0
-
-# Require signals from at least this many distinct scraper types
-MIN_SOURCE_TYPES = 2
-
+# Signal type base weights
 SIGNAL_WEIGHTS = {
-    "lateral_hire":     4.0,
-    "ranking":          3.5,
-    "bar_leadership":   3.5,
-    "court_record":     3.0,
-    "practice_page":    3.0,
-    "job_posting":      2.5,
-    "recruit_posting":  2.5,
-    "bar_speaking":     2.0,
-    "bar_sponsorship":  2.0,
-    "press_release":    2.0,
-    "publication":      1.5,
-    "website_snapshot": 0.0,
+    "lateral_hire":      3.0,
+    "bar_leadership":    3.5,
+    "ranking":           3.0,
+    "office_lease":      3.0,
+    "alumni_hire":       2.5,
+    "court_record":      2.5,
+    "practice_page":     2.5,
+    "job_posting":       2.0,
+    "recruit_posting":   2.0,
+    "deal_record":       2.0,
+    "ip_filing":         2.0,
+    "diversity_signal":  1.8,
+    "thought_leadership": 1.5,
+    "bar_speaking":      1.5,
+    "bar_sponsorship":   1.5,
+    "press_release":     1.5,
+    "publication":       1.0,
+    "website_snapshot":  0.0,   # used for change detection only
 }
 
-DEPT_EMOJI = {
-    "Corporate/M&A":       "🏢",
-    "Private Equity":      "💼",
-    "Capital Markets":     "📈",
-    "Litigation":          "⚖️",
-    "Restructuring":       "🔄",
-    "Real Estate":         "🏗️",
-    "Tax":                 "🧾",
-    "Employment":          "👥",
-    "IP":                  "💡",
-    "Data Privacy":        "🔒",
-    "ESG":                 "🌿",
-    "Energy":              "⚡",
-    "Financial Services":  "🏦",
-    "Competition":         "🔍",
-    "Healthcare":          "🏥",
-    "Immigration":         "🌐",
-    "Infrastructure":      "🏛️",
-}
+SPIKE_Z_THRESHOLD   = 1.5
+SPIKE_MIN_SCORE     = 3.5
 
 
 class ExpansionAnalyzer:
     def __init__(self, db):
         self.db = db
-        self._mult_cache: dict | None = None   # loaded once per run
-
-    def _dept_multipliers(self) -> dict:
-        """BUG-2 FIX: load evolution-adjusted weights from DB."""
-        if self._mult_cache is not None:
-            return self._mult_cache
-        try:
-            cur = self.db.conn.execute(
-                "SELECT department, multiplier FROM dept_weight_multipliers"
-            )
-            self._mult_cache = {r["department"]: r["multiplier"] for r in cur.fetchall()}
-            if self._mult_cache:
-                logger.info(f"Loaded {len(self._mult_cache)} evolved dept multipliers from DB")
-        except Exception:
-            self._mult_cache = {}
-        return self._mult_cache
 
     def analyze(self, signals: list[dict]) -> list[dict]:
         """
-        Groups by (firm, dept), scores, gates on source diversity, z-scores.
-        Returns sorted alert list.
+        Returns list of expansion-alert dicts, one per (firm, department),
+        sorted by expansion_score descending.
         """
-        multipliers = self._dept_multipliers()
-
-        grouped: dict = defaultdict(list)
+        # Group by (firm_id, department)
+        groups: dict[tuple, list] = defaultdict(list)
         for s in signals:
             if s.get("signal_type") == "website_snapshot":
                 continue
-            key = (s["firm_id"], s["firm_name"], s.get("department", "Corporate/M&A"))
-            grouped[key].append(s)
+            key = (s["firm_id"], s.get("department", "Corporate/M&A"))
+            groups[key].append(s)
 
         alerts = []
-        for (firm_id, firm_name, dept), firm_sigs in grouped.items():
+        for (firm_id, dept), sigs in groups.items():
+            score = self._score(sigs)
+            baseline = self.db.get_baseline(firm_id, dept)
+            z = self._zscore(score, baseline)
+            is_spike = (z >= SPIKE_Z_THRESHOLD) or (not baseline and score >= SPIKE_MIN_SCORE)
 
-            # BUG-4 FIX: gate on source diversity before even scoring
-            source_types = {s.get("signal_type") for s in firm_sigs}
-            if len(source_types) < MIN_SOURCE_TYPES:
+            if not is_spike:
                 continue
 
-            score, breakdown = self._score(firm_sigs, dept, multipliers)
-            if score < MIN_ALERT_SCORE:
-                continue
+            breakdown = defaultdict(int)
+            for s in sigs:
+                breakdown[s["signal_type"]] += 1
 
-            historical     = self.db.get_historical_scores(firm_id, dept, weeks=4)
-            z, baseline_m  = _z_score(score, historical)
+            # Pick 3 most relevant signals as preview bullets
+            top = sorted(sigs, key=lambda x: SIGNAL_WEIGHTS.get(x["signal_type"], 1.0), reverse=True)[:3]
 
             alerts.append({
-                "firm_id":          firm_id,
-                "firm_name":        firm_name,
-                "department":       dept,
-                "dept_emoji":       DEPT_EMOJI.get(dept, "🏛"),
-                "expansion_score":  round(score, 1),
-                "signal_count":     len(firm_sigs),
-                "signal_breakdown": breakdown,
-                "source_types":     sorted(source_types),
-                "signals":          sorted(
-                    firm_sigs, key=lambda s: s.get("dept_score", 0), reverse=True
-                )[:5],
-                "z_score":          round(z, 2),
-                "baseline_mult":    round(baseline_m, 1),
-                "is_spike":         z >= 1.5,
+                "firm_id":         firm_id,
+                "firm_name":       sigs[0]["firm_name"],
+                "department":      dept,
+                "expansion_score": round(score, 2),
+                "z_score":         round(z, 2),
+                "signal_count":    len(sigs),
+                "signal_breakdown": dict(breakdown),
+                "top_signals":     top,
+                "is_new_baseline": not bool(baseline),
             })
 
         alerts.sort(key=lambda x: x["expansion_score"], reverse=True)
         return alerts
 
-    def _score(self, signals, dept, multipliers):
-        """BUG-2 FIX: applies evolution multiplier for this department."""
-        breakdown: dict = defaultdict(int)
-        total = 0.0
-
-        for s in signals:
-            base   = SIGNAL_WEIGHTS.get(s.get("signal_type", "publication"), 1.0)
-            scored = float(s.get("dept_score", s.get("department_score", 0)))
-            total += min(max(base, scored), 5.0)
-            breakdown[s["signal_type"]] += 1
-
-        # Apply evolved multiplier (1.0 = no change; updated by evolution.py)
-        mult  = multipliers.get(dept, 1.0)
-        total = round(total * mult, 2)
-        return total, dict(breakdown)
-
-    def detect_website_changes(self, new_signals):
+    def detect_website_changes(self, new_signals: list[dict]) -> list[dict]:
+        """
+        Compares website snapshot hashes from new_signals against stored hashes.
+        Returns list of changed-page dicts.
+        """
         changes = []
         for s in new_signals:
             if s.get("signal_type") != "website_snapshot":
                 continue
-            firm_id = s["firm_id"]
-            url     = s.get("url", "")
-            stored  = self.db.get_website_hash(firm_id, url)
-            if stored is None:
-                continue
-            if stored != s.get("body", ""):
+            prev = self.db.get_website_hash(s["firm_id"], s["url"])
+            curr = hashlib.sha256(s.get("body", "").encode()).hexdigest()
+            if prev and prev != curr:
                 changes.append({
-                    "firm_id":   firm_id,
+                    "firm_id":   s["firm_id"],
                     "firm_name": s["firm_name"],
-                    "url":       url,
-                    "dept":      s.get("department", ""),
+                    "url":       s["url"],
+                    "title":     s["title"],
                 })
         return changes
 
+    # ------------------------------------------------------------------ #
+    #  Helpers
+    # ------------------------------------------------------------------ #
 
-def _z_score(value, historical):
-    if not historical:
-        return 0.0, 1.0
-    n  = len(historical)
-    mu = sum(historical) / n
-    if n < 2:
-        sigma = mu * 0.3 or 1.0
-    else:
-        var   = sum((x - mu) ** 2 for x in historical) / (n - 1)
-        sigma = math.sqrt(var) or (mu * 0.3 or 1.0)
-    z    = (value - mu) / sigma
-    mult = value / mu if mu > 0 else 1.0
-    return z, mult
+    @staticmethod
+    def _score(signals: list[dict]) -> float:
+        total = 0.0
+        for s in signals:
+            w = SIGNAL_WEIGHTS.get(s.get("signal_type", "publication"), 1.0)
+            dept_score = s.get("department_score", 1.0)
+            total += w * min(dept_score, 5.0)
+        return total
+
+    @staticmethod
+    def _zscore(value: float, baseline: list[float]) -> float:
+        if len(baseline) < 2:
+            return 0.0
+        mean = statistics.mean(baseline)
+        stdev = statistics.stdev(baseline)
+        if stdev == 0:
+            return 0.0
+        return (value - mean) / stdev
