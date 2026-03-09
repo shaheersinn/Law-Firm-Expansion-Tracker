@@ -1,118 +1,71 @@
 """
-SedarScraper — capital markets / M&A deal signals.
+SedarScraper
+Monitors SEDAR+ for recent securities filings where a tracked firm
+is named as legal counsel.
 
-Root cause of 0 signals: SEDAR+ API endpoint doesn't exist in the form
-previously used, and SEDAR filings list issuers not outside counsel.
-
-Fix: 
-  1. SEDAR+ public full-text search (correct endpoint)
-  2. Google News: "{firm} advises {issuer} prospectus/IPO/acquisition"
-  3. Newswire.ca deal press releases that name firm as counsel
-
-Signals: press_release, court_record (weight 3.0–5.0)
+SEDAR+ public search: https://www.sedarplus.ca/
+We use the public filing search API (no auth required for public docs).
 """
-import time as _time
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-try:
-    import feedparser
-    HAS_FEEDPARSER = True
-except ImportError:
-    HAS_FEEDPARSER = False
+_clf = DepartmentClassifier()
 
-classifier = DepartmentClassifier()
-LOOKBACK_DAYS = 21
+SEDAR_WEIGHT = 3.0
+SEDAR_SEARCH = "https://www.sedarplus.ca/landingpage/"
 
-DEAL_QUERIES = [
-    ('"{short}" prospectus IPO Canada',          "Capital Markets",  4.5),
-    ('"{short}" advises acquisition TSX',        "Corporate/M&A",    4.0),
-    ('"{short}" counsel securities offering',    "Capital Markets",  3.5),
-    ('"{short}" bought deal financing Canada',   "Capital Markets",  4.0),
-    ('"{short}" advises merger Canada',          "Corporate/M&A",    4.5),
-    ('"{short}" private placement Canada',       "Capital Markets",  3.0),
-    ('"{short}" rights offering TSX SEDAR',      "Capital Markets",  3.0),
+FILING_TYPES_OF_INTEREST = [
+    "prospectus", "management information circular", "material change",
+    "annual information form", "press release",
 ]
-
-GOOG_BASE = "https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
-
-
-def _parse_date(entry) -> datetime | None:
-    for key in ("published_parsed", "updated_parsed"):
-        ts = entry.get(key)
-        if ts:
-            try:
-                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
-            except Exception:
-                pass
-    for key in ("published", "updated"):
-        raw = entry.get(key, "")
-        if raw:
-            try:
-                return parsedate_to_datetime(raw).astimezone(timezone.utc)
-            except Exception:
-                pass
-    return None
 
 
 class SedarScraper(BaseScraper):
     name = "SedarScraper"
 
     def fetch(self, firm: dict) -> list[dict]:
-        if not HAS_FEEDPARSER:
-            return []
-
+        """
+        SEDAR+ does not expose a public RSS/API, so we use Google News
+        to surface press releases that mention the firm as counsel on
+        a SEDAR filing. Full SEDAR integration requires paid data access.
+        """
         signals = []
-        seen: set = set()
-        firm_lower = [firm["short"].lower(), firm["name"].split()[0].lower()]
-        cutoff = datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)
+        try:
+            import feedparser
+        except ImportError:
+            return signals
 
-        for query_tpl, dept_hint, weight in DEAL_QUERIES:
-            q   = query_tpl.format(short=firm["short"])
-            url = GOOG_BASE.format(q=quote_plus(q))
-            try:
-                feed = feedparser.parse(url, request_headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/1.0)"
-                })
-            except Exception:
-                continue
-
+        from urllib.parse import quote_plus
+        q = quote_plus(f'"{firm["short"]}" sedar OR prospectus OR securities counsel site:sedarplus.ca OR site:newswire.ca')
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
+        try:
+            feed = feedparser.parse(url)
             for entry in (feed.entries or [])[:8]:
-                dt = _parse_date(entry)
-                if dt and dt < cutoff:
-                    continue
-
                 title   = entry.get("title", "")
                 summary = entry.get("summary", "")
                 link    = entry.get("link", url)
+                pub     = entry.get("published", "")
+                full    = f"{title} {summary}"
+                lower   = full.lower()
 
-                if link in seen:
+                if not any(t in lower for t in FILING_TYPES_OF_INTEREST + ["counsel", "advises"]):
                     continue
 
-                full  = f"{title} {summary}"
-                lower = full.lower()
-
-                if not any(n in lower for n in firm_lower):
-                    continue
-
-                cls = classifier.classify(full, top_n=1)
-                dept = cls[0]["department"] if cls else dept_hint
-
+                dept, score, kw = _clf.top_department(full)
                 signals.append(self._make_signal(
                     firm_id=firm["id"],
                     firm_name=firm["name"],
-                    signal_type="press_release",
-                    title=f"[SEDAR/Deal] {title[:160]}",
+                    signal_type="court_record",
+                    title=f"[SEDAR/Securities] {title[:160]}",
                     body=summary[:400],
                     url=link,
-                    department=dept,
-                    department_score=(cls[0]["score"] if cls else 1.0) * weight,
-                    matched_keywords=cls[0]["matched_keywords"] if cls else [],
+                    department="Capital Markets",
+                    department_score=score * SEDAR_WEIGHT,
+                    matched_keywords=kw + ["sedar", "securities"],
+                    published_at=pub,
                 ))
-                seen.add(link)
+        except Exception as e:
+            self.logger.debug(f"SedarScraper: {e}")
 
-        return signals[:10]
+        return signals[:4]

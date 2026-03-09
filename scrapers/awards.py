@@ -1,116 +1,121 @@
 """
-AwardsScraper — rankings/awards signals.
+AwardsScraper
+Monitors Best Lawyers Canada, Lexpert, Benchmark Canada,
+Who's Who Legal, and Precedent awards.
 
-Root cause of 0 signals: Best Lawyers, Lexpert etc. are JavaScript-rendered
-and block scraping. Fix: use Google News RSS to find award mentions per firm.
-
-Signals: ranking (weight 3.5) — high value because external recognition
-explicitly names the firm and a practice area.
+Signal research insight:
+  "Associate-level recognitions in Chambers — firms highlighting
+   'Associate to Watch' and 'Up and Coming' recognitions indicate
+   a developing bench and room for junior growth."
 """
-import time as _time
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-try:
-    import feedparser
-    HAS_FEEDPARSER = True
-except ImportError:
-    HAS_FEEDPARSER = False
+_clf = DepartmentClassifier()
 
-classifier = DepartmentClassifier()
-LOOKBACK_DAYS = 90  # rankings are annual — look back further
+AWARDS_WEIGHT = 2.5
 
-RANKING_SOURCES = [
-    {"name": "Best Lawyers",     "query": '"{short}" "best lawyers"',            "weight": 3.5},
-    {"name": "Lexpert",          "query": '"{short}" lexpert ranked',             "weight": 3.5},
-    {"name": "Chambers",         "query": '"{short}" chambers ranked band',       "weight": 3.5},
-    {"name": "Legal 500",        "query": '"{short}" "legal 500" ranked',         "weight": 3.0},
-    {"name": "Benchmark",        "query": '"{short}" benchmark litigation',        "weight": 3.0},
-    {"name": "Canadian Lawyer",  "query": '"{short}" top law firm Canada',         "weight": 3.0},
-    {"name": "IFLR",             "query": '"{short}" IFLR ranked',                "weight": 3.0},
-    {"name": "RSG Canada",       "query": '"{short}" top boutique canada ranked', "weight": 2.5},
+AWARDS_SOURCES = [
+    {
+        "name": "Best Lawyers",
+        "rss":  None,
+        "search": "https://www.bestlawyers.com/canada",
+    },
+    {
+        "name": "Lexpert",
+        "rss":  "https://www.lexpert.ca/rss/",
+        "search": None,
+    },
+    {
+        "name": "Precedent",
+        "rss":  "https://www.precedentmagazine.com/feed/",
+        "search": None,
+    },
 ]
 
-GOOG_BASE = "https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
-
-
-def _parse_date(entry) -> datetime | None:
-    for key in ("published_parsed", "updated_parsed"):
-        ts = entry.get(key)
-        if ts:
-            try:
-                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
-            except Exception:
-                pass
-    for key in ("published", "updated"):
-        raw = entry.get(key, "")
-        if raw:
-            try:
-                return parsedate_to_datetime(raw).astimezone(timezone.utc)
-            except Exception:
-                pass
-    return None
+AWARDS_KEYWORDS = [
+        "best lawyers", "lexpert", "benchmark", "who's who legal",
+        "lawyer of the year", "top 40 under 40", "precedent innovator",
+        "rising star", "associate to watch", "up and coming",
+        "recognized", "named to", "listed in", "award", "ranked",
+]
 
 
 class AwardsScraper(BaseScraper):
     name = "AwardsScraper"
 
     def fetch(self, firm: dict) -> list[dict]:
-        if not HAS_FEEDPARSER:
-            return []
-
         signals = []
-        seen: set = set()
-        firm_lower = [firm["short"].lower(), firm["name"].split()[0].lower()]
+        firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
 
-        for src in RANKING_SOURCES:
-            q   = src["query"].format(short=firm["short"])
-            url = GOOG_BASE.format(q=quote_plus(q))
-            try:
-                feed = feedparser.parse(url, request_headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/1.0)"
-                })
-            except Exception:
+        try:
+            import feedparser
+        except ImportError:
+            return signals
+
+        for src in AWARDS_SOURCES:
+            if not src["rss"]:
                 continue
+            try:
+                feed = feedparser.parse(src["rss"])
+                for entry in (feed.entries or [])[:25]:
+                    title   = entry.get("title", "")
+                    summary = entry.get("summary", "")
+                    link    = entry.get("link", src["rss"])
+                    pub     = entry.get("published", "")
+                    full    = f"{title} {summary}"
+                    lower   = full.lower()
 
+                    if not any(n.lower() in lower for n in firm_names):
+                        continue
+                    if not any(k in lower for k in AWARDS_KEYWORDS):
+                        continue
+
+                    dept, score, kw = _clf.top_department(full)
+                    signals.append(self._make_signal(
+                        firm_id=firm["id"],
+                        firm_name=firm["name"],
+                        signal_type="ranking",
+                        title=f"[{src['name']}] {title[:160]}",
+                        body=summary[:400],
+                        url=link,
+                        department=dept,
+                        department_score=score * AWARDS_WEIGHT,
+                        matched_keywords=kw,
+                        published_at=pub,
+                    ))
+            except Exception as e:
+                self.logger.debug(f"Awards {src['name']}: {e}")
+
+        # Google News for awards
+        try:
+            from urllib.parse import quote_plus
+            q = quote_plus(f'"{firm["short"]}" best lawyers OR lexpert OR ranked 2025 OR 2026')
+            url = f"https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
+            feed = feedparser.parse(url)
             for entry in (feed.entries or [])[:8]:
-                dt = _parse_date(entry)
-                if dt and dt < datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS):
-                    continue
-
                 title   = entry.get("title", "")
                 summary = entry.get("summary", "")
                 link    = entry.get("link", url)
-
-                if link in seen:
+                pub     = entry.get("published", "")
+                full    = f"{title} {summary}"
+                if not any(k in full.lower() for k in AWARDS_KEYWORDS):
                     continue
-
-                full  = f"{title} {summary}"
-                lower = full.lower()
-
-                if not any(n in lower for n in firm_lower):
-                    continue
-
-                cls = classifier.classify(full, top_n=1)
-                if not cls:
-                    continue
-                c = cls[0]
-
+                dept, score, kw = _clf.top_department(full)
                 signals.append(self._make_signal(
                     firm_id=firm["id"],
                     firm_name=firm["name"],
                     signal_type="ranking",
-                    title=f"[{src['name']}] {title[:160]}",
+                    title=f"[Awards] {title[:160]}",
                     body=summary[:400],
                     url=link,
-                    department=c["department"],
-                    department_score=c["score"] * src["weight"],
-                    matched_keywords=c["matched_keywords"],
+                    department=dept,
+                    department_score=score * AWARDS_WEIGHT,
+                    matched_keywords=kw,
+                    published_at=pub,
                 ))
-                seen.add(link)
+        except Exception as e:
+            self.logger.debug(f"Awards news: {e}")
 
-        return signals[:10]
+        return signals[:6]

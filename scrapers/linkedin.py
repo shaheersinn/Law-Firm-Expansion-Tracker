@@ -1,25 +1,27 @@
 """
-LinkedInScraper — uses Google-cached LinkedIn pages to detect
-lateral hires and partner announcements without hitting LinkedIn directly.
-Weight: 2.0–3.5
+LinkedInScraper
+Uses Google News and Google cache to surface LinkedIn signals:
+  - Lawyer "joins firm" notifications
+  - Partner profile updates
+  - Firm company page posts
+
+Direct LinkedIn scraping is blocked; we use:
+  1. Google News RSS with LinkedIn site filter
+  2. Google search snippets via News RSS
 """
 
-import re
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
+from urllib.parse import quote_plus
 
-classifier = DepartmentClassifier()
+_clf = DepartmentClassifier()
 
-GOOGLE_CACHE_URL = "https://webcache.googleusercontent.com/search?q=cache:linkedin.com/company/{slug}/posts"
-GOOGLE_SEARCH_URL = (
-    "https://www.google.com/search?q=site:linkedin.com+%22{firm_name}%22+"
-    "%22joins%22+OR+%22new+partner%22+OR+%22lateral%22&tbs=qdr:m"
-)
+LINKEDIN_WEIGHT = 2.5
 
-LATERAL_RE = re.compile(
-    r"(?:joins|joined|has\s+joined|welcomes?|new\s+partner|lateral|appointed\s+(?:as\s+)?partner)",
-    re.IGNORECASE
-)
+LATERAL_PHRASES = [
+    "joins", "joined", "has joined", "new role", "excited to announce",
+    "pleased to welcome", "starting new position", "new partner",
+]
 
 
 class LinkedInScraper(BaseScraper):
@@ -27,52 +29,47 @@ class LinkedInScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
-        signals.extend(self._google_search(firm))
-        return signals
+        try:
+            import feedparser
+        except ImportError:
+            return signals
 
-    def _google_search(self, firm: dict) -> list[dict]:
-        query = f'site:linkedin.com "{firm["short"]}" "joins" OR "new partner" OR "lateral"'
-        url = (
-            "https://www.google.com/search?"
-            f"q={query.replace(' ', '+')}&tbs=qdr:m&num=10"
-        )
-        soup = self.get_soup(url)
-        if not soup:
-            return []
+        firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
 
-        signals = []
-        for tag in soup.find_all("div", class_=re.compile(r"^g$|tF2Cxc|MjjYud"), limit=15):
-            title_tag = tag.find("h3")
-            snippet_tag = tag.find("span", class_=re.compile(r"aCOpRe|st|IsZvec"))
-            if not title_tag:
-                continue
+        # Google News for LinkedIn mentions of the firm
+        q = quote_plus(f'"{firm["short"]}" joins OR "new partner" site:linkedin.com OR "law firm" Canada')
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
 
-            title   = title_tag.get_text(" ", strip=True)
-            snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
-            full    = f"{title} {snippet}"
+        try:
+            feed = feedparser.parse(url)
+            for entry in (feed.entries or [])[:15]:
+                title   = entry.get("title", "")
+                summary = entry.get("summary", "")
+                link    = entry.get("link", url)
+                pub     = entry.get("published", "")
+                full    = f"{title} {summary}"
+                lower   = full.lower()
 
-            if not LATERAL_RE.search(full):
-                continue
+                # Must mention firm name
+                if not any(n.lower() in lower for n in firm_names):
+                    continue
+                if not any(p in lower for p in LATERAL_PHRASES):
+                    continue
 
-            link_tag = tag.find("a", href=True)
-            link = link_tag["href"] if link_tag else ""
-            if link.startswith("/url?q="):
-                link = link[7:].split("&")[0]
+                dept, score, kw = _clf.top_department(full)
+                signals.append(self._make_signal(
+                    firm_id=firm["id"],
+                    firm_name=firm["name"],
+                    signal_type="lateral_hire",
+                    title=f"[LinkedIn/News] {title[:160]}",
+                    body=summary[:400],
+                    url=link,
+                    department=dept,
+                    department_score=score * LINKEDIN_WEIGHT,
+                    matched_keywords=kw,
+                    published_at=pub,
+                ))
+        except Exception as e:
+            self.logger.debug(f"LinkedIn scraper: {e}")
 
-            cls = classifier.top_department(full)
-            if not cls:
-                continue
-
-            signals.append(self._make_signal(
-                firm_id=firm["id"],
-                firm_name=firm["name"],
-                signal_type="lateral_hire",
-                title=f"[LinkedIn] {title[:160]}",
-                body=snippet[:400],
-                url=link,
-                department=cls["department"],
-                department_score=cls["score"] * 3.0,
-                matched_keywords=cls["matched_keywords"],
-            ))
-
-        return signals[:5]
+        return signals[:6]

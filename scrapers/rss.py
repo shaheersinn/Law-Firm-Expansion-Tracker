@@ -1,23 +1,20 @@
 """
-RSSFeedScraper — 30+ Canadian legal, financial, and regulatory RSS feeds.
+RSS Feed Aggregator
+=====================
+Monitors 20+ legal news RSS feeds simultaneously for firm mentions.
+Faster and lighter than HTML scraping — many outlets update their
+RSS within minutes of publishing.
 
-Strategy: scan each feed for firm-name mentions in title/summary.
-Works best for firms with distinctive short names.
+Sources include national legal press, regional outlets, financial press,
+and trade publications that cover specific practice areas.
 
-NEW in v2:
-  - 18 additional feeds (Precedent, Bay Street Bull, BNN Bloomberg, Reuters Canada,
-    CCCA, IFLR, MergerMarket free, Law360 Canada, Financial Times Canada,
-    Business in Vancouver, Hamilton Spectator Business, Calgary Herald Business,
-    Osgoode Hall Law Journal, Windsor Yearbook, Alberta Law Review)
-  - Lateral and deal phrase detection for signal_type routing
-  - Source-specific weight tuning
+Why RSS matters: Lateral hire announcements and deal tombstones often
+appear in RSS feeds within hours, days before the firm's own news page
+is updated.
 """
 
 import re
-import time as _time
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
-
+import time
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
@@ -28,103 +25,42 @@ except ImportError:
     HAS_FEEDPARSER = False
 
 classifier = DepartmentClassifier()
-LOOKBACK_DAYS = 21
 
-# ── Pattern banks ─────────────────────────────────────────────────────────────
+RSS_FEEDS = [
+    # ── Legal Press ────────────────────────────────────────────────────
+    {"name": "Canadian Lawyer",       "url": "https://www.canadianlawyermag.com/rss/",                    "weight": 2.0},
+    {"name": "The Lawyer's Daily",    "url": "https://www.thelawyersdaily.ca/rss",                         "weight": 2.0},
+    {"name": "Law Times",             "url": "https://www.lawtimesnews.com/rss",                           "weight": 1.8},
+    {"name": "Precedent",             "url": "https://www.precedentmagazine.com/feed/",                    "weight": 1.5},
+    # ── Financial Press (deal coverage) ───────────────────────────────
+    {"name": "Globe B&M",             "url": "https://www.theglobeandmail.com/business/rss",               "weight": 1.8},
+    {"name": "Financial Post",        "url": "https://financialpost.com/feed",                             "weight": 1.8},
+    {"name": "Bloomberg Canada",      "url": "https://feeds.bloomberg.com/markets/news.rss",               "weight": 2.0},
+    # ── Practice-area specific ─────────────────────────────────────────
+    {"name": "Privacy Law Blog",      "url": "https://www.privacylawblog.ca/feed/",                        "weight": 2.0},
+    {"name": "Slaw.ca",               "url": "https://www.slaw.ca/feed/",                                  "weight": 1.5},
+    {"name": "Lexology Canada",       "url": "https://www.lexology.com/rss/feed/canada.xml",               "weight": 1.5},
+    {"name": "Mondaq Canada",         "url": "https://www.mondaq.com/rss/canada/rss",                      "weight": 1.5},
+    # ── Deal Wires ────────────────────────────────────────────────────
+    {"name": "Cision PR",             "url": "https://www.newswire.ca/rss/",                               "weight": 1.5},
+    {"name": "CNW Group",             "url": "https://www.cnw.ca/rss/",                                    "weight": 1.5},
+    # ── Litigation/Courts ──────────────────────────────────────────────
+    {"name": "Advocates Daily",       "url": "https://www.advocates-daily.com/rss.xml",                    "weight": 2.0},
+    # ── ESG/Energy ────────────────────────────────────────────────────
+    {"name": "Daily Oil Bulletin",    "url": "https://www.dailyoilbulletin.com/rss",                       "weight": 2.0},
+    {"name": "CBC Business",          "url": "https://www.cbc.ca/cmlink/rss-business",                     "weight": 1.5},
+]
 
 LATERAL_PHRASES = [
     "joins", "joined", "has joined", "welcomes", "new partner",
-    "lateral", "appointed partner", "named partner", "recruits",
-    "new associate", "new counsel", "promoted to partner",
+    "lateral hire", "expands team", "grows practice",
+    "appointed partner", "named partner",
 ]
 
 DEAL_PHRASES = [
     "advises", "advised", "counsel to", "acts as counsel", "represented",
-    "closes acquisition", "announces merger", "counsel on the",
-    "transaction counsel", "successfully completed",
+    "successfully completed", "closes", "closed", "announces",
 ]
-
-OFFICE_PHRASES = [
-    "opens office", "new office", "expands to", "launches practice",
-    "new practice group", "merges with", "strategic alliance",
-]
-
-# ── Feed catalogue ────────────────────────────────────────────────────────────
-
-RSS_FEEDS = [
-    # ── Tier A: Dedicated Canadian legal press ────────────────────────────────
-    {"name": "Canadian Lawyer",      "url": "https://www.canadianlawyermag.com/rss/",                "weight": 3.5},
-    {"name": "Law Times",            "url": "https://www.lawtimesnews.com/rss",                      "weight": 3.0},
-    {"name": "Lawyers Weekly",       "url": "https://www.lawyersweekly.ca/rss/",                     "weight": 3.0},
-    {"name": "Lawyer's Daily",       "url": "https://www.thelawyersdaily.ca/rss",                    "weight": 3.0},
-    {"name": "Slaw",                 "url": "https://www.slaw.ca/feed/",                             "weight": 2.0},
-    {"name": "Advocates Daily",      "url": "https://www.advocates-daily.com/rss.xml",               "weight": 2.5},
-    {"name": "National CBA",         "url": "https://www.nationalmagazine.ca/en-ca/articles/rss",    "weight": 2.5},
-    {"name": "Lexpert",              "url": "https://www.lexpert.ca/rss/",                           "weight": 3.5},
-    {"name": "CCCA Pulse",           "url": "https://www.ccca.ca/rss/",                              "weight": 2.5},
-    {"name": "OBA News",             "url": "https://www.oba.org/rss/news",                          "weight": 2.0},
-    # ── Tier B: Business press covering legal ─────────────────────────────────
-    {"name": "Financial Post",       "url": "https://financialpost.com/feed",                        "weight": 2.5},
-    {"name": "Globe Business",       "url": "https://www.theglobeandmail.com/business/rss",          "weight": 2.5},
-    {"name": "BNN Bloomberg",        "url": "https://www.bnnbloomberg.ca/rss",                       "weight": 2.0},
-    {"name": "CBC Business",         "url": "https://www.cbc.ca/cmlink/rss-business",                "weight": 1.8},
-    {"name": "Toronto Star Biz",     "url": "https://www.thestar.com/feeds.topstories.rss",          "weight": 1.8},
-    {"name": "Biz in Vancouver",     "url": "https://biv.com/rss.xml",                               "weight": 2.0},
-    {"name": "Calgary Herald Biz",   "url": "https://calgaryherald.com/category/business/feed",      "weight": 1.8},
-    {"name": "Ottawa Business",      "url": "https://ottawabusinessjournal.com/feed/",               "weight": 1.8},
-    # ── Tier C: Wire services / PR ───────────────────────────────────────────
-    {"name": "Newswire.ca",          "url": "https://www.newswire.ca/rss/",                          "weight": 2.0},
-    {"name": "Globe Newswire CA",    "url": "https://www.globenewswire.com/RssFeed/country/Canada",  "weight": 2.0},
-    {"name": "Reuters Canada",       "url": "https://feeds.reuters.com/reuters/CATopNews",           "weight": 2.0},
-    # ── Tier D: Regulatory / government ──────────────────────────────────────
-    {"name": "OSC Releases",         "url": "https://www.osc.ca/en/news-events/news-releases/rss",  "weight": 3.0},
-    {"name": "Competition Bureau",   "url": "https://www.canada.ca/en/competition-bureau/news.rss", "weight": 3.0},
-    {"name": "DOJ Canada",           "url": "https://www.canada.ca/en/department-justice/news.rss", "weight": 2.5},
-    {"name": "OSFI Releases",        "url": "https://www.osfi-bsif.gc.ca/en/news/rss",              "weight": 2.5},
-    {"name": "Privacy Commissioner", "url": "https://www.priv.gc.ca/en/opc-news/rss/",              "weight": 3.0},
-    {"name": "Canada Gazette",       "url": "https://gazette.gc.ca/rss/p1-eng.xml",                 "weight": 2.0},
-    # ── Tier E: Aggregators with Canadian content ─────────────────────────────
-    {"name": "Lexology Canada",      "url": "https://www.lexology.com/rss/feed/canada.xml",         "weight": 2.0},
-    {"name": "Mondaq Canada",        "url": "https://www.mondaq.com/rss/canada/",                   "weight": 1.8},
-    {"name": "JD Supra Canada",      "url": "https://www.jdsupra.com/resources/syndication/docsRSSfeed.aspx?ftype=AllContent&tp=canada", "weight": 1.8},
-    # ── Tier F: International with Canada coverage ───────────────────────────
-    {"name": "IFLR Canada",          "url": "https://www.iflr.com/rss/site/iflr/canada.xml",        "weight": 3.0},
-    {"name": "Global Legal Post",    "url": "https://www.globallegalpost.com/rss.xml",               "weight": 2.0},
-]
-
-
-def _parse_date(entry: dict) -> datetime | None:
-    for key in ("published_parsed", "updated_parsed"):
-        ts = entry.get(key)
-        if ts:
-            try:
-                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
-            except Exception:
-                pass
-    for key in ("published", "updated"):
-        raw = entry.get(key, "")
-        if raw:
-            try:
-                return parsedate_to_datetime(raw).astimezone(timezone.utc)
-            except Exception:
-                pass
-    return None
-
-
-def _is_recent(entry, days=LOOKBACK_DAYS) -> bool:
-    dt = _parse_date(entry)
-    return dt is None or dt >= datetime.now(timezone.utc) - timedelta(days=days)
-
-
-def _route_signal_type(text: str) -> tuple[str, float]:
-    lower = text.lower()
-    if any(p in lower for p in LATERAL_PHRASES):
-        return "lateral_hire", 3.0
-    if any(p in lower for p in DEAL_PHRASES):
-        return "press_release", 2.5
-    if any(p in lower for p in OFFICE_PHRASES):
-        return "practice_page", 3.5
-    return "press_release", 1.5
 
 
 class RSSFeedScraper(BaseScraper):
@@ -132,57 +68,60 @@ class RSSFeedScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         if not HAS_FEEDPARSER:
+            self.logger.warning("feedparser not installed — skipping RSS scraper")
             return []
 
-        firm_tokens = [firm["short"].lower(), firm["name"].split()[0].lower()] + \
-                      [a.lower() for a in firm.get("alt_names", [])]
-
         signals = []
-        seen: set = set()
+        firm_names = [firm["short"]] + firm.get("alt_names", []) + [firm["name"].split()[0]]
 
-        for src in RSS_FEEDS:
-            try:
-                feed = feedparser.parse(src["url"], request_headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/2.0)"
-                })
-            except Exception:
+        for feed_meta in RSS_FEEDS:
+            signals.extend(self._process_feed(firm, firm_names, feed_meta))
+
+        self.logger.info(f"[{firm['short']}] RSS total: {len(signals)} signal(s)")
+        return signals
+
+    def _process_feed(self, firm: dict, firm_names: list, feed_meta: dict) -> list[dict]:
+        signals = []
+        try:
+            feed = feedparser.parse(feed_meta["url"])
+        except Exception as e:
+            self.logger.debug(f"RSS parse error {feed_meta['url']}: {e}")
+            return signals
+
+        for entry in (feed.entries or [])[:25]:
+            title   = entry.get("title",   "")
+            summary = entry.get("summary", entry.get("description", ""))
+            link    = entry.get("link",    feed_meta["url"])
+            full    = f"{title} {summary}"
+            lower   = full.lower()
+
+            if not any(n.lower() in lower for n in firm_names):
                 continue
 
-            for entry in (feed.entries or [])[:25]:
-                if not _is_recent(entry):
-                    continue
+            is_lateral = any(p in lower for p in LATERAL_PHRASES)
+            is_deal    = any(p in lower for p in DEAL_PHRASES)
 
-                title   = entry.get("title", "")
-                summary = entry.get("summary", "")
-                link    = entry.get("link", src["url"])
+            if not (is_lateral or is_deal or len(full) > 100):
+                continue
 
-                if link in seen:
-                    continue
+            sig_type   = "lateral_hire"  if is_lateral else "press_release"
+            weight_mult = 2.5 if is_lateral else 1.0
 
-                full  = f"{title} {summary}"
-                lower = full.lower()
+            classifications = classifier.classify(full, top_n=1)
+            if not classifications:
+                continue
 
-                if not any(t in lower for t in firm_tokens):
-                    continue
-
-                sig_type, type_mult = _route_signal_type(full)
-
-                cls = classifier.classify(full, top_n=1)
-                if not cls:
-                    continue
-                c = cls[0]
-
-                signals.append(self._make_signal(
-                    firm_id=firm["id"],
-                    firm_name=firm["name"],
-                    signal_type=sig_type,
-                    title=f"[{src['name']}] {title[:160]}",
-                    body=summary[:500],
-                    url=link,
-                    department=c["department"],
-                    department_score=c["score"] * src["weight"] * type_mult,
-                    matched_keywords=c["matched_keywords"],
-                ))
-                seen.add(link)
+            cls = classifications[0]
+            signals.append(self._make_signal(
+                firm_id=firm["id"],
+                firm_name=firm["name"],
+                signal_type=sig_type,
+                title=f"[{feed_meta['name']}] {title[:160]}",
+                body=summary[:600],
+                url=link,
+                department=cls["department"],
+                department_score=cls["score"] * feed_meta["weight"] * weight_mult,
+                matched_keywords=cls["matched_keywords"],
+            ))
 
         return signals

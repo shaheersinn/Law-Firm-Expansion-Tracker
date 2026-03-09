@@ -1,86 +1,52 @@
 """
-BarAssociationScraper — BUG-8 FIX.
+BarAssociationScraper
+Monitors bar association leadership appointments and speaking engagements.
+Bar leadership roles are Tier-1 signals: firm made a reputational commitment.
 
-Old bug: scraped CBA/OBA section listing pages that list TOPICS (not lawyers),
-         so firm names never appeared → 0 signals for all 26 firms.
-
-New approach:
-  1. Google News RSS: "[firm] bar association" / "[firm] appointed chair"
-  2. CBA/OBA board/officers pages (these DO name lawyers + their firms)
-  3. Bencher election results pages (LSO)
+Sources:
+  - CBA (Canadian Bar Association) — sections list + news
+  - OBA (Ontario Bar Association) — news + sections
+  - LSO (Law Society of Ontario) — news
+  - Advocates' Society — news
+  - CCCA (Canadian Corporate Counsel Association) — news
 """
-
-import time as _time
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-try:
-    import feedparser
-    HAS_FEEDPARSER = True
-except ImportError:
-    HAS_FEEDPARSER = False
+_clf = DepartmentClassifier()
 
-classifier = DepartmentClassifier()
-
-LOOKBACK_DAYS = 60   # bar appointments are less frequent — use 60-day window
-
-# These pages actually list officer names WITH firm affiliations
-OFFICER_PAGES = [
-    {"name": "OBA Board",      "url": "https://www.oba.org/About/Board-of-Directors",        "weight": 3.5},
-    {"name": "Advocates Soc.", "url": "https://www.advocates.ca/about/board-of-directors",   "weight": 3.0},
-    {"name": "CCCA Board",     "url": "https://ccca-caj.ca/en/about/board-of-directors/",    "weight": 2.5},
-    {"name": "ACC Canada",     "url": "https://www.acc.com/chapters/canada",                 "weight": 2.0},
-    {"name": "LSO Benchers",   "url": "https://lso.ca/about-lso/governance/benchers",        "weight": 3.5},
+BAR_SOURCES = [
+    {
+        "name": "CBA",
+        "news_url": "https://www.cba.org/News-Media/News-and-Articles",
+        "rss": None,
+    },
+    {
+        "name": "OBA",
+        "news_url": "https://www.oba.org/News",
+        "rss": None,
+    },
+    {
+        "name": "Advocates Society",
+        "news_url": "https://www.advocates.ca/news",
+        "rss": None,
+    },
 ]
 
-LEADERSHIP_KWS = [
-    "chair", "vice-chair", "president", "director", "executive committee",
-    "board member", "elected", "appointed", "co-chair", "past president",
-    "treasurer", "secretary", "bencher", "governor", "counsel",
+LEADERSHIP_KEYWORDS = [
+    "chair", "president", "vice-president", "elected", "appointed",
+    "executive", "section head", "committee chair", "board member",
+    "treasurer", "secretary", "director",
 ]
 
-APPOINTMENT_PHRASES = [
-    "appointed", "elected to", "named chair", "named president",
-    "joins board", "new chair", "new president", "bar association",
-    "bencher", "section chair", "bar leadership", "governance",
+SPEAKING_KEYWORDS = [
+    "speaker", "panelist", "keynote", "moderator", "presents",
+    "presenting", "speaking at", "featured speaker",
 ]
 
-# Google News queries for bar appointments
-BAR_NEWS_QUERIES = [
-    ('"{short}" bar association appointed', 3.0),
-    ('"{short}" bencher elected',           3.5),
-    ('"{short}" law society',               2.5),
-]
-
-
-def _parse_date(entry: dict) -> datetime | None:
-    for key in ("published_parsed", "updated_parsed"):
-        ts = entry.get(key)
-        if ts:
-            try:
-                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
-            except Exception:
-                pass
-    for key in ("published", "updated"):
-        raw = entry.get(key, "")
-        if not raw:
-            continue
-        try:
-            return parsedate_to_datetime(raw).astimezone(timezone.utc)
-        except Exception:
-            pass
-    return None
-
-
-def _is_recent(entry, days=LOOKBACK_DAYS) -> bool:
-    dt = _parse_date(entry)
-    if dt is None:
-        return True
-    return dt >= datetime.now(timezone.utc) - timedelta(days=days)
+BAR_LEADERSHIP_WEIGHT = 3.5
+BAR_SPEAKING_WEIGHT   = 2.0
 
 
 class BarAssociationScraper(BaseScraper):
@@ -88,98 +54,48 @@ class BarAssociationScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
-        firm_names_lower = [
-            firm["short"].lower(),
-            firm["name"].split()[0].lower(),
-        ] + [a.lower() for a in firm.get("alt_names", [])]
+        firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
 
-        # Source 1: scrape officer/board pages
-        for page in OFFICER_PAGES:
-            soup = self.get_soup(page["url"])
+        for src in BAR_SOURCES:
+            soup = self._soup(src["news_url"], timeout=15)
             if not soup:
                 continue
-
-            page_text = soup.get_text(" ", strip=True).lower()
-            if not any(n in page_text for n in firm_names_lower):
-                continue
-
-            for tag in soup.find_all(["li", "p", "td", "div", "article", "tr"], limit=400):
-                text  = tag.get_text(" ", strip=True)
+            for tag in soup.find_all(["li", "p", "article", "div"])[:60]:
+                text = self._clean(tag.get_text())
                 lower = text.lower()
-
-                if not any(n in lower for n in firm_names_lower):
+                if not any(n.lower() in lower for n in firm_names):
                     continue
-                if len(text) < 15 or len(text) > 500:
+                if len(text) < 20:
                     continue
 
-                is_leader = any(kw in lower for kw in LEADERSHIP_KWS)
-                sig_type  = "bar_leadership" if is_leader else "bar_speaking"
-                w_mult    = 1.5 if is_leader else 1.0
+                is_leadership = any(k in lower for k in LEADERSHIP_KEYWORDS)
+                is_speaking   = any(k in lower for k in SPEAKING_KEYWORDS)
+                if not (is_leadership or is_speaking):
+                    continue
 
-                cls  = classifier.top_department(text)
-                dept = cls["department"] if cls else "Corporate/M&A"
+                # Find URL
+                a = tag.find("a", href=True) or tag.find_parent("a")
+                link = src["news_url"]
+                if a and a.get("href"):
+                    href = a["href"]
+                    link = href if href.startswith("http") else f"https://{href.lstrip('/')}"
 
+                sig_type = "bar_leadership" if is_leadership else "bar_speaking"
+                weight   = BAR_LEADERSHIP_WEIGHT if is_leadership else BAR_SPEAKING_WEIGHT
+
+                dept, score, kw = _clf.top_department(text)
                 signals.append(self._make_signal(
                     firm_id=firm["id"],
                     firm_name=firm["name"],
                     signal_type=sig_type,
-                    title=f"[{page['name']}] {text[:160]}",
-                    url=page["url"],
+                    title=f"[{src['name']}] {text[:160]}",
+                    body=text[:400],
+                    url=link,
                     department=dept,
-                    department_score=(cls["score"] if cls else 1.0) * page["weight"] * w_mult,
-                    matched_keywords=cls["matched_keywords"] if cls else [],
+                    department_score=score * weight,
+                    matched_keywords=kw,
                 ))
+                if len(signals) >= 8:
+                    return signals
 
-        # Source 2: Google News RSS for bar appointments
-        if HAS_FEEDPARSER:
-            for query_tpl, w_mult in BAR_NEWS_QUERIES:
-                q   = query_tpl.format(short=firm["short"])
-                url = (
-                    "https://news.google.com/rss/search"
-                    f"?q={quote_plus(q)}&hl=en-CA&gl=CA&ceid=CA:en"
-                )
-                try:
-                    feed = feedparser.parse(url, request_headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/1.0)"
-                    })
-                except Exception:
-                    continue
-
-                for entry in (feed.entries or [])[:10]:
-                    if not _is_recent(entry):
-                        continue
-
-                    title   = entry.get("title", "")
-                    summary = entry.get("summary", "")
-                    full    = f"{title} {summary}"
-                    lower   = full.lower()
-
-                    if not any(n in lower for n in firm_names_lower):
-                        continue
-                    if not any(p in lower for p in APPOINTMENT_PHRASES):
-                        continue
-
-                    cls = classifier.classify(full, top_n=1)
-                    if not cls:
-                        continue
-                    c = cls[0]
-
-                    signals.append(self._make_signal(
-                        firm_id=firm["id"],
-                        firm_name=firm["name"],
-                        signal_type="bar_leadership",
-                        title=f"[Bar News] {title[:160]}",
-                        body=summary[:400],
-                        url=entry.get("link", url),
-                        department=c["department"],
-                        department_score=c["score"] * w_mult,
-                        matched_keywords=c["matched_keywords"],
-                    ))
-
-        return signals[:15]
-
-
-try:
-    from urllib.parse import quote_plus
-except ImportError:
-    pass
+        return signals

@@ -1,123 +1,114 @@
 """
-ConferenceScraper — conference/speaking signals.
+ConferenceScraper
+Monitors legal conference agendas for firm speaking engagements
+and sponsorships.
 
-Root cause of 0 signals: Scraping conference websites for speaker lists
-is fragile — most don't list speakers by firm in scrapeable format.
+Signal research insight:
+  "When a firm has three or four lawyers speaking at the same conference,
+   that practice group is almost certainly growing."
+  "Conference speaking = market considers them a leader = client work flowing."
 
-Fix: Google News RSS for firm + conference speaking mentions.
-Law firms actively PR their speaking engagements.
-
-Signals: bar_speaking (weight 2.0), bar_sponsorship (weight 2.0)
+Sources:
+  - OBA (Ontario Bar Association) PD programs
+  - LSO CPD programs
+  - Osgoode Professional Development
+  - Federated Press / Insight conferences
+  - PDAC (mining law — Calgary/Vancouver)
+  - CAPL (energy law)
+  - IAPP Canada (privacy)
 """
-import time as _time
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-try:
-    import feedparser
-    HAS_FEEDPARSER = True
-except ImportError:
-    HAS_FEEDPARSER = False
+_clf = DepartmentClassifier()
 
-classifier = DepartmentClassifier()
-LOOKBACK_DAYS = 60
+CONF_WEIGHT = 2.0
 
-CONF_QUERIES = [
-    ('"{short}" conference speaker 2025 OR 2026',       2.0),
-    ('"{short}" panel keynote symposium',                2.0),
-    ('"{short}" sponsoring conference Canada',           2.0),
-    ('"{short}" presents webinar seminar',               1.8),
-    ('"{short}" speaking engagement legal',              1.8),
-    ('"{short}" hosts conference summit 2025 OR 2026',   2.5),
+CONFERENCE_SOURCES = [
+    {
+        "name": "OBA Institute",
+        "url": "https://www.oba.org/Professional-Development",
+        "rss": None,
+        "dept_hint": None,
+    },
+    {
+        "name": "Osgoode PD",
+        "url": "https://www.osgoode.yorku.ca/programs/professional-development/",
+        "rss": None,
+        "dept_hint": None,
+    },
+    {
+        "name": "IAPP Canada",
+        "url": "https://iapp.org/conference/",
+        "rss": None,
+        "dept_hint": "Data Privacy",
+    },
 ]
 
-GOOG_BASE = "https://news.google.com/rss/search?q={q}&hl=en-CA&gl=CA&ceid=CA:en"
-
-CONF_KWS = [
-    "conference", "panel", "keynote", "symposium", "summit", "webinar",
-    "speaker", "presenting", "moderator", "sponsors", "hosts",
+SPEAKING_KEYWORDS = [
+    "speaker", "speakers", "panelist", "keynote", "moderator",
+    "chair", "presents", "featured", "agenda", "faculty",
 ]
 
-
-def _parse_date(entry) -> datetime | None:
-    for key in ("published_parsed", "updated_parsed"):
-        ts = entry.get(key)
-        if ts:
-            try:
-                return datetime.fromtimestamp(_time.mktime(ts), tz=timezone.utc)
-            except Exception:
-                pass
-    for key in ("published", "updated"):
-        raw = entry.get(key, "")
-        if raw:
-            try:
-                return parsedate_to_datetime(raw).astimezone(timezone.utc)
-            except Exception:
-                pass
-    return None
+SPONSORSHIP_KEYWORDS = [
+    "sponsor", "presenting sponsor", "gold sponsor", "silver sponsor",
+    "platinum sponsor", "event partner",
+]
 
 
 class ConferenceScraper(BaseScraper):
     name = "ConferenceScraper"
 
     def fetch(self, firm: dict) -> list[dict]:
-        if not HAS_FEEDPARSER:
-            return []
-
         signals = []
-        seen: set = set()
-        firm_lower = [firm["short"].lower(), firm["name"].split()[0].lower()]
-        cutoff = datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)
+        firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
 
-        for query_tpl, weight in CONF_QUERIES:
-            q   = query_tpl.format(short=firm["short"])
-            url = GOOG_BASE.format(q=quote_plus(q))
-            try:
-                feed = feedparser.parse(url, request_headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; LegalTracker/1.0)"
-                })
-            except Exception:
+        for src in CONFERENCE_SOURCES:
+            soup = self._soup(src["url"], timeout=15)
+            if not soup:
                 continue
-
-            for entry in (feed.entries or [])[:6]:
-                dt = _parse_date(entry)
-                if dt and dt < cutoff:
+            for tag in soup.find_all(["li", "p", "div", "td"])[:80]:
+                text = self._clean(tag.get_text())
+                lower = text.lower()
+                if not any(n.lower() in lower for n in firm_names):
+                    continue
+                if len(text) < 15:
                     continue
 
-                title   = entry.get("title", "")
-                summary = entry.get("summary", "")
-                link    = entry.get("link", url)
-
-                if link in seen:
+                is_speaking    = any(k in lower for k in SPEAKING_KEYWORDS)
+                is_sponsorship = any(k in lower for k in SPONSORSHIP_KEYWORDS)
+                if not (is_speaking or is_sponsorship):
                     continue
 
-                full  = f"{title} {summary}"
-                lower = full.lower()
+                sig_type = "bar_speaking" if is_speaking else "bar_sponsorship"
+                weight   = CONF_WEIGHT * (1.5 if is_sponsorship else 1.0)
 
-                if not any(n in lower for n in firm_lower):
-                    continue
-                if not any(k in lower for k in CONF_KWS):
-                    continue
+                # Find URL
+                a = tag.find("a", href=True)
+                link = src["url"]
+                if a and a.get("href"):
+                    href = a["href"]
+                    link = href if href.startswith("http") else src["url"]
 
-                sig_type = "bar_sponsorship" if "sponsor" in lower else "bar_speaking"
-                cls = classifier.classify(full, top_n=1)
-                dept = cls[0]["department"] if cls else "Corporate/M&A"
+                dept_hint = src.get("dept_hint")
+                if dept_hint:
+                    dept, score, kw = dept_hint, 2.0, [dept_hint.lower()]
+                else:
+                    dept, score, kw = _clf.top_department(text)
 
                 signals.append(self._make_signal(
                     firm_id=firm["id"],
                     firm_name=firm["name"],
                     signal_type=sig_type,
-                    title=f"[Conf] {title[:160]}",
-                    body=summary[:400],
+                    title=f"[{src['name']}] {text[:160]}",
+                    body=text[:400],
                     url=link,
                     department=dept,
-                    department_score=(cls[0]["score"] if cls else 1.0) * weight,
-                    matched_keywords=cls[0]["matched_keywords"] if cls else [],
+                    department_score=score * weight,
+                    matched_keywords=kw,
                 ))
-                seen.add(link)
+                if len(signals) >= 6:
+                    return signals
 
-        return signals[:8]
+        return signals

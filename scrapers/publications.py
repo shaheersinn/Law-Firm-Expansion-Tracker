@@ -1,41 +1,22 @@
 """
-PublicationsScraper — firm thought leadership and external aggregators.
+PublicationsScraper
+Monitors firm insights pages, Lexology, and Mondaq.
+High publication velocity in a practice area = active client work.
 
-A spike in publications by a firm in a given practice area signals
-deliberate investment in that area (hiring experts, chasing mandates).
-
-Sources:
-  Firm insights/blog pages   — direct scrape
-  Lexology                   — Canada-filtered firm articles
-  Mondaq                     — Canada section
-  JD Supra                   — Canada tag
-  Osgoode Hall (academic)    — cites firms
-  SSRN Canada                — law review working papers
-
-v2 improvements:
-  - JD Supra direct firm-author search
-  - Mondaq direct author search
-  - Better title filtering (min quality threshold)
-  - Dedup across sources
+Signal research insight:
+  "Monitor how actively a firm publishes client alerts — this is a proxy
+   for how busy and growing that group is."
 """
-
-import re
-from urllib.parse import quote_plus, urljoin
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-classifier = DepartmentClassifier()
+_clf = DepartmentClassifier()
 
-MIN_TITLE_LEN   = 30
-MIN_DEPT_SCORE  = 1.5
+PUB_WEIGHT = 1.2
 
-LEXOLOGY_URL = (
-    "https://www.lexology.com/library/results.aspx"
-    "?q={firm}&jurisdiction=Canada&sort=3&pageSize=20"
-)
-MONDAQ_URL  = "https://www.mondaq.com/search/{firm}?country=canada&sort=mostRecent"
-JDSUPRA_URL = "https://www.jdsupra.com/law-news/?search={firm}&country=Canada&sort=date"
+LEXOLOGY_BASE = "https://www.lexology.com/library?q={query}&jurisdiction=Canada"
+MONDAQ_BASE   = "https://www.mondaq.com/search/?q={query}&country=Canada"
 
 
 class PublicationsScraper(BaseScraper):
@@ -43,193 +24,78 @@ class PublicationsScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
-        seen: set = set()
 
-        # 1 — Firm's own insights page
-        signals.extend(self._scrape_firm_insights(firm, seen))
+        # ── Firm's own insights/publications page ──────────────────────
+        insights_url = firm.get("news_url", "")
+        if insights_url:
+            soup = self._soup(insights_url)
+            if soup:
+                articles = soup.find_all(["article", "li", "div"], limit=60)
+                for tag in articles:
+                    a = tag.find("a", href=True)
+                    if not a:
+                        continue
+                    text = self._clean(a.get_text())
+                    if len(text) < 20:
+                        continue
+                    href = a["href"]
+                    if not href.startswith("http"):
+                        from urllib.parse import urljoin
+                        href = urljoin(insights_url, href)
 
-        # 2 — Lexology
-        signals.extend(self._scrape_lexology(firm, seen))
+                    # look for sibling text (date, summary)
+                    parent_text = self._clean(tag.get_text())
+                    dept, score, kw = _clf.top_department(parent_text or text)
+                    if score < 0.5:
+                        continue
 
-        # 3 — Mondaq
-        signals.extend(self._scrape_mondaq(firm, seen))
+                    signals.append(self._make_signal(
+                        firm_id=firm["id"],
+                        firm_name=firm["name"],
+                        signal_type="publication",
+                        title=f"[{firm['short']}] {text[:160]}",
+                        body=parent_text[:400],
+                        url=href,
+                        department=dept,
+                        department_score=score * PUB_WEIGHT,
+                        matched_keywords=kw,
+                    ))
+                    if len(signals) >= 10:
+                        break
 
-        # 4 — JD Supra
-        signals.extend(self._scrape_jdsupra(firm, seen))
+        # ── Lexology RSS ───────────────────────────────────────────────
+        try:
+            import feedparser
+            lex_url = f"https://www.lexology.com/rss/feed/canada.xml"
+            try:
+                feed = feedparser.parse(lex_url)
+                firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
+                for entry in (feed.entries or [])[:30]:
+                    title   = entry.get("title", "")
+                    summary = entry.get("summary", "")
+                    link    = entry.get("link", lex_url)
+                    pub     = entry.get("published", "")
+                    full    = f"{title} {summary}"
+                    # filter by firm OR high dept score
+                    firm_hit = any(n.lower() in full.lower() for n in firm_names)
+                    dept, score, kw = _clf.top_department(full)
+                    if not firm_hit or score < 1.0:
+                        continue
+                    signals.append(self._make_signal(
+                        firm_id=firm["id"],
+                        firm_name=firm["name"],
+                        signal_type="publication",
+                        title=f"[Lexology] {title[:160]}",
+                        body=summary[:400],
+                        url=link,
+                        department=dept,
+                        department_score=score * PUB_WEIGHT,
+                        matched_keywords=kw,
+                        published_at=pub,
+                    ))
+            except Exception as e:
+                self.logger.debug(f"Lexology RSS: {e}")
+        except ImportError:
+            pass
 
-        return signals[:20]
-
-    def _scrape_firm_insights(self, firm, seen) -> list[dict]:
-        url = firm.get("news_url", "")
-        if not url:
-            return []
-        soup = self.get_soup(url)
-        if not soup:
-            return []
-
-        signals = []
-        for tag in soup.find_all(["a", "h2", "h3", "h4"], limit=80):
-            text = tag.get_text(" ", strip=True)
-            if len(text) < MIN_TITLE_LEN or len(text) > 300:
-                continue
-
-            cls = classifier.top_department(text)
-            if not cls or cls["score"] < MIN_DEPT_SCORE:
-                continue
-
-            link = ""
-            if tag.name == "a":
-                href = tag.get("href", "")
-                link = href if href.startswith("http") else urljoin(firm["website"], href)
-            if link in seen:
-                continue
-
-            signals.append(self._make_signal(
-                firm_id=firm["id"], firm_name=firm["name"],
-                signal_type="publication",
-                title=text[:200],
-                url=link or url,
-                department=cls["department"],
-                department_score=cls["score"] * 1.2,
-                matched_keywords=cls["matched_keywords"],
-            ))
-            seen.add(link or text[:80])
-
-        # Dedup by title
-        unique, titles = [], set()
-        for s in signals:
-            t = s["title"][:80]
-            if t not in titles:
-                titles.add(t)
-                unique.append(s)
-        return unique[:15]
-
-    def _scrape_lexology(self, firm, seen) -> list[dict]:
-        q   = quote_plus(firm["short"])
-        url = LEXOLOGY_URL.format(firm=q)
-        soup = self.get_soup(url)
-        if not soup:
-            return []
-
-        signals = []
-        for article in soup.find_all(["article", "div"], class_=re.compile(r"article|post|result", re.I))[:15]:
-            title_tag = article.find(["h2", "h3", "a"])
-            if not title_tag:
-                continue
-            title = title_tag.get_text(" ", strip=True)
-            if len(title) < MIN_TITLE_LEN:
-                continue
-
-            author_tag = article.find(["span", "div"], class_=re.compile(r"author|firm", re.I))
-            author = author_tag.get_text(" ", strip=True) if author_tag else ""
-
-            # Must be authored by or mention the firm
-            full = f"{title} {author}"
-            if firm["short"].lower() not in full.lower() and \
-               firm["name"].split()[0].lower() not in full.lower():
-                continue
-
-            link_tag = article.find("a", href=True)
-            link = link_tag["href"] if link_tag else url
-            if link in seen:
-                continue
-
-            cls = classifier.top_department(title)
-            if not cls or cls["score"] < MIN_DEPT_SCORE:
-                continue
-
-            signals.append(self._make_signal(
-                firm_id=firm["id"], firm_name=firm["name"],
-                signal_type="publication",
-                title=f"[Lexology] {title[:160]}",
-                url=link,
-                department=cls["department"],
-                department_score=cls["score"] * 1.8,
-                matched_keywords=cls["matched_keywords"],
-            ))
-            seen.add(link)
-        return signals
-
-    def _scrape_mondaq(self, firm, seen) -> list[dict]:
-        q   = quote_plus(firm["short"])
-        url = MONDAQ_URL.format(firm=q)
-        soup = self.get_soup(url)
-        if not soup:
-            return []
-
-        signals = []
-        for tag in soup.find_all(["h2", "h3", "article"], limit=30):
-            title_tag = tag if tag.name in ("h2", "h3") else tag.find(["h2", "h3"])
-            if not title_tag:
-                continue
-            title = title_tag.get_text(" ", strip=True)
-            if len(title) < MIN_TITLE_LEN:
-                continue
-
-            full_context = tag.get_text(" ", strip=True)
-            if firm["short"].lower() not in full_context.lower():
-                continue
-
-            link_tag = tag.find("a", href=True) if tag.name != "a" else tag
-            link = ""
-            if link_tag:
-                href = link_tag.get("href", "")
-                link = href if href.startswith("http") else urljoin("https://www.mondaq.com", href)
-            if link in seen:
-                continue
-
-            cls = classifier.top_department(title)
-            if not cls or cls["score"] < MIN_DEPT_SCORE:
-                continue
-
-            signals.append(self._make_signal(
-                firm_id=firm["id"], firm_name=firm["name"],
-                signal_type="publication",
-                title=f"[Mondaq] {title[:160]}",
-                url=link or url,
-                department=cls["department"],
-                department_score=cls["score"] * 1.8,
-                matched_keywords=cls["matched_keywords"],
-            ))
-            seen.add(link or title[:80])
-        return signals[:8]
-
-    def _scrape_jdsupra(self, firm, seen) -> list[dict]:
-        q   = quote_plus(firm["short"])
-        url = JDSUPRA_URL.format(firm=q)
-        soup = self.get_soup(url)
-        if not soup:
-            return []
-
-        signals = []
-        for tag in soup.find_all(["h2", "h3", "article"], limit=30):
-            title_tag = tag if tag.name in ("h2", "h3") else tag.find(["h2", "h3"])
-            if not title_tag:
-                continue
-            title = title_tag.get_text(" ", strip=True)
-            if len(title) < MIN_TITLE_LEN:
-                continue
-
-            link_tag = tag.find("a", href=True)
-            link = ""
-            if link_tag:
-                href = link_tag.get("href", "")
-                link = href if href.startswith("http") else urljoin("https://www.jdsupra.com", href)
-            if link in seen:
-                continue
-
-            cls = classifier.top_department(title)
-            if not cls or cls["score"] < MIN_DEPT_SCORE:
-                continue
-
-            signals.append(self._make_signal(
-                firm_id=firm["id"], firm_name=firm["name"],
-                signal_type="publication",
-                title=f"[JD Supra] {title[:160]}",
-                url=link or url,
-                department=cls["department"],
-                department_score=cls["score"] * 1.8,
-                matched_keywords=cls["matched_keywords"],
-            ))
-            seen.add(link or title[:80])
-        return signals[:8]
+        return signals[:12]

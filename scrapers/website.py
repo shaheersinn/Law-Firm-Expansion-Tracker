@@ -1,18 +1,22 @@
 """
-WebsiteScraper — crawls practice area pages and detects content changes.
-A changed page often means a new hire, renamed practice, or new service.
+WebsiteScraper
+Scrapes firm practice area pages and detects content changes.
+A changed practice page often signals a new group being built out.
 """
 
 import hashlib
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
-classifier = DepartmentClassifier()
+_clf = DepartmentClassifier()
 
-PRACTICE_URL_PATTERNS = [
-    "/practice-areas", "/practices", "/services", "/our-work",
-    "/expertise", "/what-we-do",
+PRACTICE_SUFFIXES = [
+    "/practice-areas", "/practices", "/services",
+    "/en/practice-areas", "/en/services", "/en/practices",
+    "/what-we-do", "/our-work",
 ]
+
+WEB_WEIGHT = 2.5
 
 
 class WebsiteScraper(BaseScraper):
@@ -20,37 +24,37 @@ class WebsiteScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
-        base = firm["website"].rstrip("/")
 
-        # Try common practice-area paths
-        for path in PRACTICE_URL_PATTERNS:
-            url = base + path
-            resp = self.get(url)
-            if not resp or resp.status_code != 200:
+        base = firm["website"].rstrip("/")
+        careers_url = firm.get("careers_url", "")
+
+        urls_to_check = []
+        for suf in PRACTICE_SUFFIXES:
+            urls_to_check.append(base + suf)
+        if careers_url:
+            urls_to_check.append(careers_url)
+
+        for url in urls_to_check[:3]:  # cap at 3 pages per firm
+            soup = self._soup(url, timeout=15)
+            if not soup:
                 continue
 
-            content = resp.text
-            content_hash = hashlib.md5(content.encode()).hexdigest()
+            text = soup.get_text(separator=" ")
+            dept, score, kw = _clf.top_department(text[:2000])
 
-            # Emit a snapshot signal for change detection downstream
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(content, "lxml")
-            text = soup.get_text(" ", strip=True)[:1000]
-
-            cls = classifier.top_department(text)
-            dept = cls["department"] if cls else "Corporate/M&A"
+            content_hash = hashlib.sha256(text.encode()).hexdigest()
 
             signals.append(self._make_signal(
                 firm_id=firm["id"],
                 firm_name=firm["name"],
                 signal_type="website_snapshot",
-                title=f"Practice page snapshot: {url}",
-                body=content_hash,   # used for change detection
+                title=f"[{firm['short']}] Practice page: {url.split('/')[-1] or 'home'}",
+                body=text[:800],
                 url=url,
                 department=dept,
-                department_score=0,  # scored only on change
-                matched_keywords=[],
+                department_score=score * WEB_WEIGHT,
+                matched_keywords=kw,
             ))
-            break  # only need one successful page
+            break  # one successful page is enough
 
         return signals
