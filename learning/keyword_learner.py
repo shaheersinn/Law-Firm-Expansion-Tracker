@@ -18,7 +18,7 @@ import json
 import logging
 import sqlite3
 from collections import Counter, defaultdict
-from classifier.taxonomy import TAXONOMY
+from classifier.taxonomy import DEPARTMENTS as TAXONOMY
 
 logger = logging.getLogger("learning.keyword_learner")
 
@@ -66,6 +66,15 @@ class KeywordLearner:
                 frequency   INTEGER DEFAULT 1,
                 first_seen  TEXT    DEFAULT (datetime('now')),
                 UNIQUE(department, ngram)
+            );
+
+            CREATE TABLE IF NOT EXISTS signal_feedback (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_id        INTEGER,
+                department       TEXT,
+                matched_keywords TEXT,
+                outcome          TEXT,
+                recorded_at      TEXT DEFAULT (datetime('now'))
             );
         """)
         self._db.conn.commit()
