@@ -183,9 +183,10 @@ class ExpansionAnalyzer:
             dept_score = min(s.get("department_score") or 1.0, 5.0)
             confidence = s.get("confidence") or 0.5
 
-            # Compute age in days from scraped_at
+            # Compute age in days — try scraped_at first, fall back to seen_at
             try:
-                scraped = datetime.fromisoformat(s["scraped_at"].rstrip("Z"))
+                ts_str = s.get("scraped_at") or s.get("seen_at") or ""
+                scraped = datetime.fromisoformat(ts_str.rstrip("Z"))
                 if scraped.tzinfo is None:
                     scraped = scraped.replace(tzinfo=timezone.utc)
                 age_days = max((now - scraped).total_seconds() / 86400, 0)

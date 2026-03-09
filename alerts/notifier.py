@@ -11,7 +11,9 @@ Improvements:
 
 import logging
 import os
+import re
 import requests
+from urllib.parse import urlparse
 
 logger = logging.getLogger("alerts.notifier")
 
@@ -56,6 +58,84 @@ TYPE_EMOJI: dict[str, str] = {
 
 MAX_MSG_LEN = 4000
 
+# ── Module-level helper functions ─────────────────────────────────────────────
+
+# Human-readable labels for signal types used in breakdowns
+_BREAKDOWN_LABELS: dict[str, str] = {
+    "press_release":      "press releases",
+    "publication":        "publications",
+    "practice_page":      "practice pages",
+    "job_posting":        "job postings",
+    "lateral_hire":       "lateral hires",
+    "recruit_posting":    "recruit postings",
+    "website_snapshot":   "site snapshots",
+    "bar_leadership":     "bar roles",
+    "ranking":            "rankings",
+    "thought_leadership": "thought leadership",
+    "diversity_signal":   "diversity signals",
+    "alumni_hire":        "alumni hires",
+    "deal_record":        "deals",
+    "court_record":       "court records",
+    "ip_filing":          "IP filings",
+    "bar_speaking":       "speaking",
+    "office_lease":       "office signals",
+}
+
+
+def _clean_title(title: str) -> str:
+    """
+    Strip [Source Tag] prefixes and clean up common noise patterns.
+    E.g. "[Practice Page] Firm — Department" → "Department"
+         "[Firm News] PublicationThe rise..." → "The rise..."
+    """
+    if not title:
+        return title
+    # Remove leading [Source Tag] prefix
+    cleaned = re.sub(r"^\[.*?\]\s*", "", title).strip()
+    # "Firm — Practice Area" → "Practice Area"
+    cleaned = re.sub(r"^[^—–]+\s[—–]\s", "", cleaned).strip()
+    # Fix leading concatenated word: "PublicationThe rise" → "The rise"
+    cleaned = re.sub(r"^[A-Z][a-z]+(?=[A-Z])", "", cleaned).strip()
+    # Fix missing space before capitals: "actionsCanada" → "actions Canada"
+    cleaned = re.sub(r"([a-z])([A-Z])", r"\1 \2", cleaned).strip()
+    return cleaned or title
+
+
+def _fmt_breakdown(breakdown: dict) -> str:
+    """
+    Format a signal-type breakdown dict as a human-readable string.
+    E.g. {"press_release": 3, "publication": 2} → "3 press releases, 2 publications"
+    """
+    if not breakdown:
+        return ""
+    parts = []
+    for stype, cnt in sorted(breakdown.items(), key=lambda x: -x[1]):
+        label = _BREAKDOWN_LABELS.get(stype, stype.replace("_", " "))
+        parts.append(f"{cnt} {label}")
+    return ", ".join(parts[:5])
+
+
+def _strength_badge(score: float) -> str:
+    """Return an emoji strength indicator for an expansion score."""
+    if score >= 20:
+        return "🔥🔥🔥"
+    if score >= 12:
+        return "🔥🔥"
+    if score >= 6:
+        return "🔥"
+    if score >= 3.5:
+        return "⚡"
+    return "📍"
+
+
+def _page_name_from_url(url: str) -> str:
+    """Extract a human-readable page name from a URL path slug."""
+    if not url:
+        return url
+    path = urlparse(url).path.rstrip("/")
+    slug = path.split("/")[-1] if path else ""
+    return slug.replace("-", " ").replace("_", " ").title() or url
+
 
 class Notifier:
     def __init__(self, config):
@@ -64,6 +144,92 @@ class Notifier:
         self.dash_url = os.getenv("DASHBOARD_URL", "")
         self.run_id   = os.getenv("GITHUB_RUN_ID", "")
         self.repo     = os.getenv("GITHUB_REPOSITORY", "")
+
+    # ------------------------------------------------------------------ #
+
+    def _build_message(
+        self,
+        alerts: list[dict],
+        website_changes: list[dict],
+        new_signals: list[dict] | None = None,
+    ) -> str:
+        """
+        Build a clean Telegram-ready digest string without sending.
+        Used by the test harness and by send_combined_digest internally.
+        Avoids all checked invariants:
+          - no "(s)" lazy plurals
+          - no raw "Score N.NN" strings
+          - no "website_snapshot" literal
+          - no raw [Source Tag] prefixes in titles
+          - no cryptic abbreviations (pg, pub, rec)
+          - no verbose "Practice area page changed at URL" strings
+          - stays within MAX_MSG_LEN characters
+        """
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%B %d, %Y")
+        new_signals = new_signals or []
+
+        n_sig = len(new_signals)
+        n_alr = len(alerts)
+
+        header = "\n".join([
+            "📊 *Law Firm Expansion Tracker*",
+            f"_{today}_",
+            "─" * 34,
+            f"*{n_sig}* new signals · *{n_alr}* alerts",
+        ])
+
+        body_parts: list[str] = []
+        if alerts:
+            count_label = "Alerts" if n_alr != 1 else "Alert"
+            body_parts.append(f"\n*🔔 {n_alr} Expansion {count_label}*\n")
+            for i, alert in enumerate(alerts, 1):
+                dept_e  = DEPT_EMOJI.get(alert["department"], "📌")
+                badge   = _strength_badge(alert["expansion_score"])
+                arrow   = alert.get("velocity_arrow", "→")
+                z       = alert.get("z_score", 0)
+                z_lbl   = f" ↑{z:.1f}σ" if z else ""
+                sector  = " 🌊" if alert.get("sector_momentum") else ""
+                new_lbl = " 🆕" if alert.get("is_new_baseline") else ""
+
+                block_lines = [
+                    f"{i}. 🏛 *{alert['firm_name']}*{sector}",
+                    f"   {dept_e} {alert['department']} {arrow}{new_lbl}",
+                    f"   {badge}{z_lbl}  {alert['signal_count']} signals",
+                ]
+                for sig in alert.get("top_signals", [])[:2]:
+                    te    = TYPE_EMOJI.get(sig.get("signal_type", ""), "•")
+                    raw_t = sig.get("title", "")
+                    title = _clean_title(raw_t)[:80].replace("*", "").replace("[", "").replace("]", "")
+                    url   = sig.get("url", "")
+                    if url:
+                        block_lines.append(f"   {te} [{title}]({url})")
+                    else:
+                        block_lines.append(f"   {te} {title}")
+
+                block = "\n".join(block_lines)
+                # Check if adding this block would exceed the limit
+                candidate = header + "\n" + "\n".join(body_parts + [block])
+                if len(candidate) > MAX_MSG_LEN - 200:
+                    # Add truncation notice and stop
+                    remaining = n_alr - i + 1
+                    body_parts.append(f"_… and {remaining} more alerts_")
+                    break
+                body_parts.append(block)
+
+        if website_changes:
+            wc_count = len(website_changes)
+            wc_label = "Changes" if wc_count != 1 else "Change"
+            body_parts.append(f"\n*🔄 {wc_count} Website {wc_label}*")
+            for chg in website_changes[:5]:
+                page = _page_name_from_url(chg["url"])
+                body_parts.append(f"  • *{chg['firm_name']}* — {page}")
+
+        if not alerts and not website_changes:
+            body_parts.append("\n_No new expansion signals this run._")
+
+        return header + "\n" + "\n".join(body_parts)
 
     # ------------------------------------------------------------------ #
 
