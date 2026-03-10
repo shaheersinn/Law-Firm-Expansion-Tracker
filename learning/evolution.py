@@ -18,17 +18,33 @@ DB_PATH = os.getenv("DB_PATH", "law_firm_tracker.db")
 WEIGHTS_PATH = "learned_weights.json"
 
 
-def run_evolution():
+def run_evolution(log_path: str = None, force: bool = False) -> dict | None:
     """
     Reads the DB, computes hit-rate per signal type per department,
     and saves adjusted weights to learned_weights.json.
-    """
-    if not os.path.exists(DB_PATH):
-        logger.warning("No DB found — skipping evolution")
-        return
 
-    conn = sqlite3.connect(DB_PATH)
+    Returns a report dict on success, or None when the schedule says
+    it is too early to run (and force=False).
+    """
+    db_path = os.getenv("DB_PATH", DB_PATH)
+
+    if not os.path.exists(db_path):
+        logger.warning("No DB found — skipping evolution")
+        return None
+
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+
+    # ── Check learning schedule (skip if too soon and not forced) ─────────
+    from database.db import Database
+    from learning.schedule import LearningSchedule
+    _db = Database(db_path)
+    sched = LearningSchedule(_db)
+
+    if not force and not sched.should_run():
+        _db.close()
+        conn.close()
+        return None
 
     # Count signals by type and department
     rows = conn.execute(
@@ -62,5 +78,14 @@ def run_evolution():
         json.dump(learned, f, indent=2)
 
     logger.info(f"Evolution complete — weights saved to {WEIGHTS_PATH}")
-    logger.info(json.dumps(learned, indent=2))
+
+    sched.record_run(confirmed=0, false_pos=0)
+    sched_stats = sched.get_stats()
+    _db.close()
     conn.close()
+
+    return {
+        "learning_schedule":   sched_stats,
+        "keywords_updated":    len(learned),
+        "signal_type_weights": learned,
+    }

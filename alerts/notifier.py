@@ -11,7 +11,9 @@ Improvements:
 
 import logging
 import os
+import re
 import requests
+from urllib.parse import urlparse
 
 logger = logging.getLogger("alerts.notifier")
 
@@ -56,6 +58,116 @@ TYPE_EMOJI: dict[str, str] = {
 
 MAX_MSG_LEN = 4000
 
+# Human-readable labels for signal types: (singular, plural)
+_TYPE_LABELS: dict[str, tuple[str, str]] = {
+    "press_release":      ("press release",     "press releases"),
+    "publication":        ("publication",        "publications"),
+    "practice_page":      ("practice page",      "practice pages"),
+    "job_posting":        ("job posting",        "job postings"),
+    "lateral_hire":       ("lateral hire",       "lateral hires"),
+    "recruit_posting":    ("recruit posting",    "recruit postings"),
+    "ranking":            ("ranking",            "rankings"),
+    "deal_record":        ("deal record",        "deal records"),
+    "court_record":       ("court record",       "court records"),
+    "ip_filing":          ("IP filing",          "IP filings"),
+    "thought_leadership": ("thought leadership", "thought leadership"),
+    "bar_speaking":       ("bar speaking",       "bar speaking"),
+    "bar_sponsorship":    ("bar sponsorship",    "bar sponsorships"),
+    "alumni_hire":        ("alumni hire",        "alumni hires"),
+    "diversity_signal":   ("diversity signal",   "diversity signals"),
+    "bar_leadership":     ("bar leadership",     "bar leadership"),
+    "website_snapshot":   ("web change",        "web changes"),
+}
+
+# Known content-type prefixes glued to titles (e.g. "PublicationThe rise…")
+_CONTENT_PREFIXES = (
+    "Practice area page content changed at https://",
+    "Practice area page content changed at http://",
+    "Publication",
+    "LawFirmArticle",
+)
+
+
+def _clean_title(raw: str) -> str:
+    """Strip source-tag prefixes and fix common title artefacts.
+
+    Examples
+    --------
+    "[Practice Page] Goodmans — Capital Markets"  →  "Capital Markets"
+    "[Firm News] PublicationThe rise of class actionsCanada"
+                                                  →  "The rise of class actions Canada"
+    ""                                            →  "Untitled"
+    """
+    if not raw:
+        return "Untitled"
+
+    title = raw.strip()
+
+    # 1. Strip [Source Tag] prefix — e.g. [Firm News], [Practice Page], [NRF Insights]
+    title = re.sub(r"^\[.*?\]\s*", "", title)
+
+    # 2. Strip firm-name em-dash prefix — e.g. "Goodmans — Capital Markets"
+    if " \u2014 " in title:
+        parts = title.split(" \u2014 ", 1)
+        if len(parts[0].split()) <= 3:   # short left side → it's a firm/source label
+            title = parts[1]
+
+    # 3. Strip known content-type words glued at the start
+    for prefix in _CONTENT_PREFIXES:
+        if title.startswith(prefix):
+            title = title[len(prefix):].strip()
+            break
+
+    # 4. Insert space between a lowercase letter immediately followed by uppercase
+    #    (fixes concatenated words like "actionsCanada" → "actions Canada")
+    title = re.sub(r"([a-z])([A-Z])", r"\1 \2", title)
+
+    # 5. Collapse whitespace
+    title = " ".join(title.split())
+
+    return title or "Untitled"
+
+
+def _fmt_breakdown(breakdown: dict) -> str:
+    """Return a human-readable, comma-separated signal-type count string.
+
+    Avoids cryptic abbreviations and never exposes 'website_snapshot'.
+
+    Example: {"press_release": 3, "publication": 2} → "3 press releases, 2 publications"
+    """
+    parts = []
+    for stype, count in sorted(breakdown.items(), key=lambda x: -x[1]):
+        if stype == "website_snapshot":
+            continue
+        if stype in _TYPE_LABELS:
+            label = _TYPE_LABELS[stype][1 if count > 1 else 0]
+        else:
+            label = stype.replace("_", " ")
+            if count > 1 and not label.endswith("s"):
+                label += "s"
+        parts.append(f"{count} {label}")
+    return ", ".join(parts[:4]) if parts else "—"
+
+
+def _strength_badge(signal_type: str) -> str:
+    """Return the display emoji badge for a signal type."""
+    return TYPE_EMOJI.get(signal_type, "•")
+
+
+def _page_name_from_url(url: str) -> str:
+    """Extract a human-readable page name from a URL.
+
+    Example: "https://goodmans.ca/expertise/capital-markets/" → "capital markets"
+    """
+    try:
+        path = urlparse(url).path.rstrip("/")
+        if not path:
+            return url
+        segment = path.split("/")[-1]
+        return segment.replace("-", " ").replace("_", " ") if segment else url
+    except Exception:
+        return url
+
 
 class Notifier:
     def __init__(self, config):
@@ -64,6 +176,100 @@ class Notifier:
         self.dash_url = os.getenv("DASHBOARD_URL", "")
         self.run_id   = os.getenv("GITHUB_RUN_ID", "")
         self.repo     = os.getenv("GITHUB_REPOSITORY", "")
+
+    # ------------------------------------------------------------------ #
+
+    def _build_message(
+        self,
+        alerts: list[dict],
+        website_changes: list[dict],
+        new_signals: list[dict] | None = None,
+    ) -> str:
+        """Build the Telegram digest string without sending it."""
+        from datetime import datetime, timezone
+        from collections import Counter
+
+        today       = datetime.now(timezone.utc).strftime("%B %d, %Y")
+        new_signals = new_signals or []
+
+        n_new    = len(new_signals)
+        n_alerts = len(alerts)
+
+        # ── Header ──────────────────────────────────────────────────────
+        parts: list[str] = [
+            "📊 *Law Firm Expansion Tracker*",
+            f"_{today}_",
+        ]
+        if self.dash_url:
+            parts.append(f"🖥 [Open Live Dashboard]({self.dash_url})")
+        parts.append("─" * 34)
+
+        # ── Summary (no lazy (s) plurals) ────────────────────────────────
+        new_word   = "signal"  if n_new    == 1 else "signals"
+        alert_word = "alert"   if n_alerts == 1 else "alerts"
+        parts.append(f"*{n_new}* new {new_word} · *{n_alerts}* {alert_word}")
+
+        type_counts = Counter(s.get("signal_type", "other") for s in new_signals)
+        if type_counts:
+            top = ", ".join(
+                f"{TYPE_EMOJI.get(t, '•')} {c} {t.replace('_', ' ')}"
+                for t, c in type_counts.most_common(4)
+                if t != "website_snapshot"
+            )
+            if top:
+                parts.append(f"_{top}_")
+
+        # ── No activity ──────────────────────────────────────────────────
+        if not alerts and not website_changes:
+            parts.append("_No new expansion spikes this run._")
+            return "\n".join(parts)
+
+        # ── Expansion alerts ─────────────────────────────────────────────
+        if alerts:
+            hdr = "Expansion Alert" if n_alerts == 1 else "Expansion Alerts"
+            parts.append(f"\n*🔔 {n_alerts} {hdr}*")
+
+            # Reserve ~150 chars for website-changes footer
+            budget = MAX_MSG_LEN - len("\n".join(parts)) - 150
+
+            for i, alert in enumerate(alerts, 1):
+                dept_e  = DEPT_EMOJI.get(alert["department"], "📌")
+                arrow   = alert.get("velocity_arrow", "→")
+                z       = alert.get("z_score", 0)
+                fire    = " 🔥" if z >= 2.0 else ""
+                sector  = " 🌊" if alert.get("sector_momentum") else ""
+                new_lbl = " 🆕" if alert.get("is_new_baseline") else ""
+                bd_str  = _fmt_breakdown(alert.get("signal_breakdown", {}))
+
+                block = [
+                    f"{i}. 🏛 *{alert['firm_name']}*{fire}{sector}",
+                    f"   {dept_e} {alert['department']} {arrow}{new_lbl}",
+                    f"   {bd_str}",
+                ]
+                for sig in alert.get("top_signals", [])[:2]:
+                    badge = _strength_badge(sig.get("signal_type", ""))
+                    title = _clean_title(sig.get("title", ""))
+                    url   = sig.get("url", "")
+                    if url:
+                        block.append(f"   {badge} [{title}]({url})")
+                    else:
+                        block.append(f"   {badge} {title}")
+
+                block_text = "\n".join(block)
+                if budget - len(block_text) - 2 < 0:
+                    break   # no more room
+                parts.append(block_text)
+                budget -= len(block_text) + 2  # +2 for the "\n" join
+
+        # ── Website changes ──────────────────────────────────────────────
+        if website_changes:
+            ch_word = "Website Change" if len(website_changes) == 1 else "Website Changes"
+            parts.append(f"\n*🔄 {len(website_changes)} {ch_word}*")
+            for chg in website_changes[:5]:
+                page = _page_name_from_url(chg["url"])
+                parts.append(f"  • *{chg['firm_name']}* — [{page}]({chg['url']})")
+
+        return "\n".join(parts)
 
     # ------------------------------------------------------------------ #
 
