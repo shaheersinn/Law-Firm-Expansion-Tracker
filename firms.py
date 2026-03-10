@@ -1,15 +1,16 @@
 """
 26 Canadian law firms tracked by the expansion tracker.
 Each entry has:
-  id          — short snake_case key used in CLI and DB
-  name        — full legal name
-  short       — abbreviated name used in signals
-  website     — root URL for website scraper
-  careers_url — direct link to careers/jobs page
-  news_url    — press release / news page
+  id            — short snake_case key used in CLI and DB
+  name          — full legal name
+  short         — abbreviated name used in signals
+  alt_names     — ALL known press/common variants (drives RSS + scraper matching)
+  website       — root URL for website scraper
+  careers_url   — direct link to careers/jobs page
+  news_url      — press release / news page
   linkedin_slug — for future LinkedIn scraping
-  tier        — 1=Bay Street elite, 2=national, 3=regional
-  hq          — headquarters city
+  tier          — 1=Bay Street elite, 2=national, 3=regional
+  hq            — headquarters city
 """
 
 FIRMS = [
@@ -18,6 +19,10 @@ FIRMS = [
         "id": "davies",
         "name": "Davies Ward Phillips & Vineberg LLP",
         "short": "Davies",
+        "alt_names": [
+            "DWPV", "Davies Ward", "Davies Ward Phillips",
+            "Davies Ward Phillips & Vineberg", "Davies Phillips",
+        ],
         "website": "https://www.dwpv.com",
         "careers_url": "https://www.dwpv.com/en/careers",
         "news_url": "https://www.dwpv.com/en/insights/news",
@@ -29,6 +34,10 @@ FIRMS = [
         "id": "blakes",
         "name": "Blake, Cassels & Graydon LLP",
         "short": "Blakes",
+        "alt_names": [
+            "Blake Cassels", "Blake, Cassels", "Blake, Cassels & Graydon",
+            "Blake Cassels Graydon", "Blakes LLP",
+        ],
         "website": "https://www.blakes.com",
         "careers_url": "https://www.blakes.com/careers",
         "news_url": "https://www.blakes.com/insights/news",
@@ -40,6 +49,10 @@ FIRMS = [
         "id": "mccarthy",
         "name": "McCarthy Tétrault LLP",
         "short": "McCarthy",
+        "alt_names": [
+            "McCarthy Tetrault", "McCarthy Tétrault", "McCarthys",
+            "McCarthy Tétrault LLP", "MT Law",
+        ],
         "website": "https://www.mccarthy.ca",
         "careers_url": "https://www.mccarthy.ca/en/careers",
         "news_url": "https://www.mccarthy.ca/en/insights/news",
@@ -51,6 +64,10 @@ FIRMS = [
         "id": "osler",
         "name": "Osler, Hoskin & Harcourt LLP",
         "short": "Osler",
+        "alt_names": [
+            "Oslers", "Osler Hoskin", "Osler, Hoskin & Harcourt",
+            "Osler Hoskin Harcourt", "Osler LLP",
+        ],
         "website": "https://www.osler.com",
         "careers_url": "https://www.osler.com/en/careers",
         "news_url": "https://www.osler.com/en/resources/regulations/",
@@ -62,6 +79,9 @@ FIRMS = [
         "id": "stikeman",
         "name": "Stikeman Elliott LLP",
         "short": "Stikeman",
+        "alt_names": [
+            "Stikemans", "Stikeman Elliott", "Stikeman Elliott LLP",
+        ],
         "website": "https://www.stikeman.com",
         "careers_url": "https://www.stikeman.com/en-ca/careers",
         "news_url": "https://www.stikeman.com/en-ca/kh/all",
@@ -73,6 +93,7 @@ FIRMS = [
         "id": "torys",
         "name": "Torys LLP",
         "short": "Torys",
+        "alt_names": ["Torys LLP", "Tory's", "Tory LLP"],
         "website": "https://www.torys.com",
         "careers_url": "https://www.torys.com/careers",
         "news_url": "https://www.torys.com/our-work/news",
@@ -84,6 +105,7 @@ FIRMS = [
         "id": "goodmans",
         "name": "Goodmans LLP",
         "short": "Goodmans",
+        "alt_names": ["Goodmans LLP", "Goodman"],
         "website": "https://www.goodmans.ca",
         "careers_url": "https://www.goodmans.ca/careers",
         "news_url": "https://www.goodmans.ca/news",
@@ -96,6 +118,10 @@ FIRMS = [
         "id": "blg",
         "name": "Borden Ladner Gervais LLP",
         "short": "BLG",
+        "alt_names": [
+            "Borden Ladner", "Borden Ladner Gervais",
+            "BLG LLP", "Borden Ladner Gervais LLP",
+        ],
         "website": "https://www.blg.com",
         "careers_url": "https://www.blg.com/en/careers",
         "news_url": "https://www.blg.com/en/insights",
@@ -107,6 +133,10 @@ FIRMS = [
         "id": "fasken",
         "name": "Fasken Martineau DuMoulin LLP",
         "short": "Fasken",
+        "alt_names": [
+            "Faskens", "Fasken Martineau", "Fasken Martineau DuMoulin",
+            "Fasken LLP",
+        ],
         "website": "https://www.fasken.com",
         "careers_url": "https://www.fasken.com/en/careers",
         "news_url": "https://www.fasken.com/en/knowledge",
@@ -118,6 +148,9 @@ FIRMS = [
         "id": "bennett_jones",
         "name": "Bennett Jones LLP",
         "short": "Bennett Jones",
+        "alt_names": [
+            "Bennett Jones LLP", "BJ LLP",
+        ],
         "website": "https://www.bennettjones.com",
         "careers_url": "https://www.bennettjones.com/Careers",
         "news_url": "https://www.bennettjones.com/Publications",
@@ -129,6 +162,10 @@ FIRMS = [
         "id": "nrf",
         "name": "Norton Rose Fulbright Canada LLP",
         "short": "NRF",
+        "alt_names": [
+            "Norton Rose", "Norton Rose Fulbright", "NRF Canada",
+            "Norton Rose Fulbright Canada",
+        ],
         "website": "https://www.nortonrosefulbright.com/en-ca",
         "careers_url": "https://www.nortonrosefulbright.com/en-ca/careers",
         "news_url": "https://www.nortonrosefulbright.com/en-ca/knowledge",
@@ -140,6 +177,9 @@ FIRMS = [
         "id": "dentons",
         "name": "Dentons Canada LLP",
         "short": "Dentons",
+        "alt_names": [
+            "Dentons Canada", "Dentons LLP", "Dentons Canada LLP",
+        ],
         "website": "https://www.dentons.com/en/about-dentons/offices/canada",
         "careers_url": "https://www.dentons.com/en/careers",
         "news_url": "https://www.dentons.com/en/insights",
@@ -151,6 +191,10 @@ FIRMS = [
         "id": "cassels",
         "name": "Cassels Brock & Blackwell LLP",
         "short": "Cassels",
+        "alt_names": [
+            "Cassels Brock", "Cassels Brock & Blackwell",
+            "Cassels Brock Blackwell", "Cassels LLP",
+        ],
         "website": "https://www.cassels.com",
         "careers_url": "https://www.cassels.com/careers/",
         "news_url": "https://www.cassels.com/publications/",
@@ -162,6 +206,7 @@ FIRMS = [
         "id": "mcmillan",
         "name": "McMillan LLP",
         "short": "McMillan",
+        "alt_names": ["McMillan LLP", "McMillans"],
         "website": "https://mcmillan.ca",
         "careers_url": "https://mcmillan.ca/careers/",
         "news_url": "https://mcmillan.ca/insights/",
@@ -173,6 +218,10 @@ FIRMS = [
         "id": "gowling",
         "name": "Gowling WLG (Canada) LLP",
         "short": "Gowling WLG",
+        "alt_names": [
+            "Gowlings", "Gowling", "Gowling WLG", "Gowling WLG Canada",
+            "WLG Canada",
+        ],
         "website": "https://gowlingwlg.com/en/canada/",
         "careers_url": "https://gowlingwlg.com/en/careers/",
         "news_url": "https://gowlingwlg.com/en/insights-resources/",
@@ -185,6 +234,9 @@ FIRMS = [
         "id": "aird_berlis",
         "name": "Aird & Berlis LLP",
         "short": "Aird & Berlis",
+        "alt_names": [
+            "Aird Berlis", "Aird and Berlis", "Aird & Berlis LLP",
+        ],
         "website": "https://www.airdberlis.com",
         "careers_url": "https://www.airdberlis.com/careers",
         "news_url": "https://www.airdberlis.com/insights",
@@ -196,6 +248,9 @@ FIRMS = [
         "id": "miller_thomson",
         "name": "Miller Thomson LLP",
         "short": "Miller Thomson",
+        "alt_names": [
+            "Miller Thomson LLP", "Miller & Thomson",
+        ],
         "website": "https://www.millerthomson.com",
         "careers_url": "https://www.millerthomson.com/careers/",
         "news_url": "https://www.millerthomson.com/insights/",
@@ -207,6 +262,9 @@ FIRMS = [
         "id": "fogler",
         "name": "Fogler, Rubinoff LLP",
         "short": "Fogler",
+        "alt_names": [
+            "Fogler Rubinoff", "Fogler, Rubinoff LLP", "Foglers",
+        ],
         "website": "https://foglers.com",
         "careers_url": "https://foglers.com/careers/",
         "news_url": "https://foglers.com/news/",
@@ -218,6 +276,9 @@ FIRMS = [
         "id": "weirfoulds",
         "name": "WeirFoulds LLP",
         "short": "WeirFoulds",
+        "alt_names": [
+            "Weir Foulds", "WeirFoulds LLP", "Weir & Foulds",
+        ],
         "website": "https://www.weirfoulds.com",
         "careers_url": "https://www.weirfoulds.com/careers",
         "news_url": "https://www.weirfoulds.com/news",
@@ -229,6 +290,7 @@ FIRMS = [
         "id": "torkin_manes",
         "name": "Torkin Manes LLP",
         "short": "Torkin Manes",
+        "alt_names": ["Torkin Manes LLP", "Torkin & Manes"],
         "website": "https://www.torkinmanes.com",
         "careers_url": "https://www.torkinmanes.com/careers/",
         "news_url": "https://www.torkinmanes.com/our-thinking/",
@@ -240,6 +302,7 @@ FIRMS = [
         "id": "loopstra",
         "name": "Loopstra Nixon LLP",
         "short": "Loopstra Nixon",
+        "alt_names": ["Loopstra Nixon LLP", "Loopstra"],
         "website": "https://www.loopstranixon.com",
         "careers_url": "https://www.loopstranixon.com/careers/",
         "news_url": "https://www.loopstranixon.com/news/",
@@ -251,6 +314,7 @@ FIRMS = [
         "id": "minden_gross",
         "name": "Minden Gross LLP",
         "short": "Minden Gross",
+        "alt_names": ["Minden Gross LLP", "Minden"],
         "website": "https://www.mindengross.com",
         "careers_url": "https://www.mindengross.com/careers/",
         "news_url": "https://www.mindengross.com/insights/",
@@ -262,6 +326,10 @@ FIRMS = [
         "id": "bdp",
         "name": "Burnet, Duckworth & Palmer LLP",
         "short": "BD&P",
+        "alt_names": [
+            "BDP", "Burnet Duckworth", "Burnet Duckworth Palmer",
+            "Burnet, Duckworth & Palmer", "Burnet, Duckworth & Palmer LLP",
+        ],
         "website": "https://www.bdplaw.com",
         "careers_url": "https://www.bdplaw.com/careers/",
         "news_url": "https://www.bdplaw.com/news/",
@@ -273,6 +341,7 @@ FIRMS = [
         "id": "lawson_lundell",
         "name": "Lawson Lundell LLP",
         "short": "Lawson Lundell",
+        "alt_names": ["Lawson Lundell LLP", "Lawson & Lundell"],
         "website": "https://www.lawsonlundell.com",
         "careers_url": "https://www.lawsonlundell.com/careers/",
         "news_url": "https://www.lawsonlundell.com/publications/",
@@ -284,6 +353,9 @@ FIRMS = [
         "id": "mcinnes_cooper",
         "name": "McInnes Cooper",
         "short": "McInnes Cooper",
+        "alt_names": [
+            "McInnes Cooper LLP", "McInnes & Cooper", "McInnes",
+        ],
         "website": "https://www.mcinnescooper.com",
         "careers_url": "https://www.mcinnescooper.com/careers/",
         "news_url": "https://www.mcinnescooper.com/publications/",
@@ -295,6 +367,10 @@ FIRMS = [
         "id": "stewart_mckelvey",
         "name": "Stewart McKelvey",
         "short": "Stewart McKelvey",
+        "alt_names": [
+            "Stewart McKelvey LLP", "Stewart & McKelvey",
+            "Stewart McKelvey Stirling Scales",
+        ],
         "website": "https://www.stewartmckelvey.com",
         "careers_url": "https://www.stewartmckelvey.com/careers/",
         "news_url": "https://www.stewartmckelvey.com/insights/",
@@ -305,5 +381,5 @@ FIRMS = [
 ]
 
 # Lookup helpers
-FIRMS_BY_ID   = {f["id"]: f for f in FIRMS}
+FIRMS_BY_ID    = {f["id"]: f for f in FIRMS}
 FIRMS_BY_SHORT = {f["short"].lower(): f for f in FIRMS}
