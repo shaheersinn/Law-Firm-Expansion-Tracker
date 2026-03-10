@@ -1,35 +1,36 @@
-name: Law Firm Expansion Tracker
+# Law Firm Expansion Tracker — GitHub Actions Workflow
+# Fixed: added contents: write so github-actions[bot] can push dashboard updates
+
+name: Law Firm Tracker
 
 on:
   schedule:
-    # Daily full collect at 07:00 UTC
-    - cron: "0 7 * * *"
-    # Daily self-learning evolution at 08:00 UTC
-    - cron: "0 8 * * *"
+    - cron: "0 7 * * *"   # Daily collect & alert
+    - cron: "0 8 * * *"   # Daily self-learning evolution
   workflow_dispatch:
     inputs:
       mode:
         description: "Run mode"
         required: false
-        default: "collect"
+        default: ""
         type: choice
         options:
-          - collect
+          - ""
           - digest
           - evolve
           - dashboard
-      firm:
-        description: "Single firm ID (e.g. osler) — leave blank for all"
-        required: false
-        default: ""
 
-# ── Schema version — BUMP THIS when db.py SCHEMA_VERSION changes ──────────────
-# Incrementing this string invalidates the cached DB so the fresh schema
-# is created from scratch on next run. Old caches are auto-expired by GitHub.
+# ── FIX: was "Contents: read" — bot could not push docs/index.html ──────────
+permissions:
+  contents: write   # Required for: git push docs/ after dashboard regen
+  metadata: read
+
 env:
-  DB_CACHE_VERSION: "v5"
+  DB_CACHE_VERSION: v5
+  SIGNAL_LOOKBACK_DAYS: 21
 
 jobs:
+  # ── 1. Collect signals & send Telegram alerts ──────────────────────────────
   track:
     name: Collect & Alert
     runs-on: ubuntu-latest
@@ -43,6 +44,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -51,13 +54,12 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
+          key: Linux-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: Linux-pip-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # DB cache key includes DB_CACHE_VERSION so stale schemas are never restored
       - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
@@ -66,36 +68,35 @@ jobs:
 
       - name: Run tracker
         env:
-          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
-          DASHBOARD_URL:        ${{ secrets.DASHBOARD_URL }}
-          CANLII_API_KEY:       ${{ secrets.CANLII_API_KEY }}
-          GITHUB_RUN_ID:        ${{ github.run_id }}
-          GITHUB_REPOSITORY:    ${{ github.repository }}
-          SIGNAL_LOOKBACK_DAYS: "21"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          CANLII_API_KEY:     ${{ secrets.CANLII_API_KEY }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          SIGNAL_LOOKBACK_DAYS: ${{ env.SIGNAL_LOOKBACK_DAYS }}
         run: |
           if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
             python main.py --digest
           elif [ -n "${{ github.event.inputs.firm }}" ]; then
-            python main.py --firm ${{ github.event.inputs.firm }}
+            python main.py --firm "${{ github.event.inputs.firm }}"
           else
             python main.py
           fi
 
-      - name: Save DB cache
-        uses: actions/cache/save@v4
-        if: always()
+      - uses: actions/cache/save@v4
         with:
           path: law_firm_tracker.db
           key: tracker-db-${{ env.DB_CACHE_VERSION }}-${{ github.run_id }}
 
-      - name: Commit dashboard
+      - name: Commit & push dashboard
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/
           git diff --cached --quiet || git commit -m "chore: update dashboard [skip ci]"
           git push
+        # Note: push now works because permissions.contents = write above
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -104,6 +105,39 @@ jobs:
           path: tracker.log
           retention-days: 14
 
+  # ── 2. Regenerate dashboard only (manual trigger) ──────────────────────────
+  dashboard:
+    name: Regenerate Dashboard
+    runs-on: ubuntu-latest
+    if: >
+      success() && (
+        github.event_name == 'workflow_dispatch' &&
+        github.event.inputs.mode == 'dashboard'
+      )
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: law_firm_tracker.db
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-${{ github.run_id }}
+          restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
+      - name: Regenerate dashboard
+        run: python main.py --dashboard-only
+      - name: Commit & push dashboard
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          git diff --cached --quiet || git commit -m "chore: regenerate dashboard [skip ci]"
+          git push
+
+  # ── 3. Self-learning evolution (daily 08:00 UTC or manual) ─────────────────
   evolve:
     name: Self-Learning Evolution
     runs-on: ubuntu-latest
@@ -115,69 +149,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - uses: actions/cache@v4
         with:
           path: law_firm_tracker.db
-          key: tracker-db-${{ env.DB_CACHE_VERSION }}-evolve-${{ github.run_id }}
+          key: tracker-db-${{ env.DB_CACHE_VERSION }}-${{ github.run_id }}
           restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
-
-      - name: Run evolution
+      - name: Evolve model
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
         run: python main.py --evolve
-
-      - name: Save DB cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: law_firm_tracker.db
-          key: tracker-db-${{ env.DB_CACHE_VERSION }}-evolve-${{ github.run_id }}
-
-      - name: Commit learned weights
+      - name: Commit evolved model state
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add learned_weights.json || true
-          git diff --cached --quiet || git commit -m "chore: update learned weights [skip ci]"
-          git push
-
-  dashboard:
-    name: Regenerate Dashboard
-    runs-on: ubuntu-latest
-    if: >
-      success() && (
-        github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'dashboard'
-      )
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - uses: actions/cache@v4
-        with:
-          path: law_firm_tracker.db
-          key: tracker-db-${{ env.DB_CACHE_VERSION }}-dash-${{ github.run_id }}
-          restore-keys: tracker-db-${{ env.DB_CACHE_VERSION }}-
-
-      - name: Regenerate dashboard
-        run: python main.py --dashboard
-
-      - name: Commit dashboard
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/
-          git diff --cached --quiet || git commit -m "chore: regenerate dashboard [skip ci]"
+          git add docs/ model_state/ 2>/dev/null || git add docs/
+          git diff --cached --quiet || git commit -m "chore: self-learning evolution [skip ci]"
           git push
