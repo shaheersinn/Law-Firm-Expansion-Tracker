@@ -1,7 +1,7 @@
 """
 Dashboard generator — writes docs/index.html for Vercel.
 
-BUG FIX (v5): column is 'dept_score' not 'department_score' — was crashing every run.
+BUG FIX (v5): columns are 'department_score' and 'scraped_at' — was crashing every run.
 NEW (v5):
   • Momentum tracker — firms trending UP vs last week shown with ↑ indicator
   • Velocity chart — signals per day sparkline
@@ -107,13 +107,13 @@ def _load_data(db_path: str) -> dict:
     cut_7d   = (now - timedelta(days=7)).strftime("%Y-%m-%d")
     cut_prev = (now - timedelta(days=14)).strftime("%Y-%m-%d")  # week 2-3 ago
 
-    # ── Signals (30d) — BUG FIX: column is 'dept_score' not 'department_score' ──
+    # ── Signals (30d) ──────────────────────────────────────────────────────────
     cur.execute("""
         SELECT firm_id, firm_name, signal_type, title, url,
-               department, dept_score, collected_at
+               department, department_score, scraped_at
         FROM signals
-        WHERE collected_at >= ?
-        ORDER BY dept_score DESC, collected_at DESC
+        WHERE scraped_at >= ?
+        ORDER BY department_score DESC, scraped_at DESC
     """, (cut_30d,))
     signals = [dict(r) for r in cur.fetchall()]
 
@@ -141,14 +141,14 @@ def _load_data(db_path: str) -> dict:
     # ── Signal type breakdown (30d) ────────────────────────────────────────────
     cur.execute("""
         SELECT signal_type, COUNT(*) as cnt FROM signals
-        WHERE collected_at >= ? GROUP BY signal_type ORDER BY cnt DESC
+        WHERE scraped_at >= ? GROUP BY signal_type ORDER BY cnt DESC
     """, (cut_30d,))
     by_type = [dict(r) for r in cur.fetchall()]
 
     # ── Firm activity (30d) ────────────────────────────────────────────────────
     cur.execute("""
         SELECT firm_name, COUNT(*) as cnt FROM signals
-        WHERE collected_at >= ? GROUP BY firm_name ORDER BY cnt DESC LIMIT 15
+        WHERE scraped_at >= ? GROUP BY firm_name ORDER BY cnt DESC LIMIT 15
     """, (cut_30d,))
     by_firm = [dict(r) for r in cur.fetchall()]
 
@@ -178,7 +178,7 @@ def _load_data(db_path: str) -> dict:
     # ── 14-day daily signal volume ─────────────────────────────────────────────
     daily_raw: dict = defaultdict(int)
     for s in signals:
-        day = (s.get("collected_at") or "")[:10]
+        day = (s.get("scraped_at") or "")[:10]
         if day >= cut_14d:
             daily_raw[day] += 1
     daily_series = []
@@ -210,7 +210,7 @@ def _load_data(db_path: str) -> dict:
         "dept_scores":      dept_scores,
         "generated_at":     now.strftime("%Y-%m-%d %H:%M UTC"),
         "signal_count_30d": len(signals),
-        "signal_count_7d":  sum(1 for s in signals if s.get("collected_at","") >= cut_7d),
+        "signal_count_7d":  sum(1 for s in signals if s.get("scraped_at","") >= cut_7d),
         "alert_count_7d":   alert_count_7d,
         "firm_count":       len(set(r["firm_name"] for r in signals)),
         "type_count":       len(by_type),
@@ -312,8 +312,8 @@ def _render_signals(signals: list) -> str:
         url      = s.get("url", "")
         dept     = s.get("department", "")
         dm       = _dept_meta(dept)
-        date     = (s.get("collected_at") or "")[:10]
-        score    = round(s.get("dept_score", 0), 1)
+        date     = (s.get("scraped_at") or "")[:10]
+        score    = round(s.get("department_score", 0), 1)
         _, sc    = _score_meta(score)
         title_html = (f'<a href="{url}" target="_blank" rel="noopener">{title}</a>'
                       if url else title)
