@@ -10,20 +10,25 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Run mode"
+        description: "Run mode: leave blank for normal run, or: digest | evolve | dashboard"
         required: false
-        default: ""
+        default: "collect"
         type: choice
         options:
-          - ""
+          - collect
           - digest
           - evolve
           - dashboard
+      firm:
+        description: "Optional: run against a single firm name (e.g. Osler)"
+        required: false
+        default: ""
+        type: string
 
-# ── FIX: was "Contents: read" — bot could not push docs/index.html ──────────
+# ── FIX 1: was "Contents: read" — bot could not push docs/index.html ────────
+# ── FIX 2: removed "metadata: read" — not a valid Actions permission scope ──
 permissions:
   contents: write   # Required for: git push docs/ after dashboard regen
-  metadata: read
 
 env:
   DB_CACHE_VERSION: v5
@@ -41,6 +46,7 @@ jobs:
          github.event.inputs.mode != 'evolve' &&
          github.event.inputs.mode != 'dashboard')
       )
+    # Handles: mode=collect (default), mode=digest, mode=<blank>, or single-firm runs
 
     steps:
       - uses: actions/checkout@v4
@@ -76,10 +82,12 @@ jobs:
           GITHUB_REPOSITORY:  ${{ github.repository }}
           SIGNAL_LOOKBACK_DAYS: ${{ env.SIGNAL_LOOKBACK_DAYS }}
         run: |
-          if [ "${{ github.event.inputs.mode }}" = "digest" ]; then
+          MODE="${{ github.event.inputs.mode }}"
+          FIRM="${{ github.event.inputs.firm }}"
+          if [ "$MODE" = "digest" ]; then
             python main.py --digest
-          elif [ -n "${{ github.event.inputs.firm }}" ]; then
-            python main.py --firm "${{ github.event.inputs.firm }}"
+          elif [ -n "$FIRM" ]; then
+            python main.py --firm "$FIRM"
           else
             python main.py
           fi
