@@ -18,49 +18,85 @@ DB_PATH = os.getenv("DB_PATH", "law_firm_tracker.db")
 WEIGHTS_PATH = "learned_weights.json"
 
 
-def run_evolution():
+def run_evolution(log_path: str | None = None, force: bool = False) -> dict | None:
     """
     Reads the DB, computes hit-rate per signal type per department,
     and saves adjusted weights to learned_weights.json.
-    """
-    if not os.path.exists(DB_PATH):
-        logger.warning("No DB found — skipping evolution")
-        return
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    Args:
+        log_path: Path to the run log, reserved for future log-based diagnostics.
+        force:    When True, skip the schedule gate and always run.
+
+    Returns:
+        A dict with keys learning_schedule, keywords_updated, signal_type_weights
+        when evolution ran, or None when the schedule says it is too soon.
+    """
+    from database.db import Database
+    from learning.schedule import LearningSchedule
+
+    db_path = os.getenv("DB_PATH", DB_PATH)
+    if not os.path.exists(db_path):
+        logger.warning("No DB found — skipping evolution")
+        return None
+
+    db = Database(db_path)
+    schedule = LearningSchedule(db)
+
+    if not force and not schedule.should_run():
+        db.close()
+        return None
+
+    conn = db.conn
 
     # Count signals by type and department
     rows = conn.execute(
-        "SELECT signal_type, department, COUNT(*) as cnt FROM signals GROUP BY signal_type, department"
+        "SELECT signal_type, department, COUNT(*) as cnt "
+        "FROM signals GROUP BY signal_type, department"
     ).fetchall()
 
     type_dept_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for row in rows:
         type_dept_counts[row["signal_type"]][row["department"]] += row["cnt"]
 
-    # Count corroborated signals (those whose firm+dept later got a high weekly score)
-    high_score_firms = {
-        row["firm_id"]
-        for row in conn.execute(
-            "SELECT firm_id FROM weekly_scores WHERE score >= 10"
-        ).fetchall()
-    }
+    # EMA learning rate for the current schedule phase
+    alpha = schedule.current_alpha()
 
-    # Bump weight for signal types that appear frequently in high-score firm+weeks
-    learned: dict[str, float] = {}
     from analysis.signals import SIGNAL_WEIGHTS
+
+    # Load existing learned weights for EMA blending
+    existing: dict[str, float] = {}
+    if os.path.exists(WEIGHTS_PATH):
+        try:
+            with open(WEIGHTS_PATH) as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
+    learned: dict[str, float] = {}
     for sig_type, base_w in SIGNAL_WEIGHTS.items():
-        high_count = sum(
-            v for dept, v in type_dept_counts.get(sig_type, {}).items()
-        )
-        # Simple nudge: ±10% based on volume
-        nudge = min(0.2, high_count * 0.005)
-        learned[sig_type] = round(base_w + nudge, 3)
+        signal_count = sum(v for v in type_dept_counts.get(sig_type, {}).values())
+        nudge = min(0.2, signal_count * 0.005)
+        new_w = base_w + nudge
+        # EMA blend: smoothly move toward the observed weight
+        old_w = existing.get(sig_type, new_w)
+        blended = round(old_w * (1 - alpha) + new_w * alpha, 3)
+        learned[sig_type] = blended
 
     with open(WEIGHTS_PATH, "w") as f:
         json.dump(learned, f, indent=2)
 
+    # confirmed/false_pos tracking requires human-labelled feedback; set to 0 until
+    # the feedback pipeline (learning/feedback.py) populates these values.
+    schedule.record_run(confirmed=0, false_pos=0)
+    schedule_stats = schedule.get_stats()
+
+    db.close()
+
     logger.info(f"Evolution complete — weights saved to {WEIGHTS_PATH}")
     logger.info(json.dumps(learned, indent=2))
-    conn.close()
+
+    return {
+        "learning_schedule":  schedule_stats,
+        "keywords_updated":   len(learned),
+        "signal_type_weights": learned,
+    }

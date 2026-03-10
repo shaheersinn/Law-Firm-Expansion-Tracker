@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS signals (
     matched_keywords TEXT,
     source           TEXT,
     published_at     TEXT,
-    scraped_at       TEXT    NOT NULL,
+    scraped_at       TEXT,
+    seen_at          TEXT,
+    dedup_key        TEXT,
     UNIQUE(firm_id, signal_type, url)
 );
 
@@ -98,7 +100,9 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "matched_keywords": "TEXT DEFAULT ''",
         "source":           "TEXT DEFAULT ''",
         "published_at":     "TEXT DEFAULT ''",
-        "scraped_at":       "TEXT NOT NULL DEFAULT ''",
+        "scraped_at":       "TEXT DEFAULT NULL",
+        "seen_at":          "TEXT DEFAULT NULL",
+        "dedup_key":        "TEXT DEFAULT NULL",
     },
     "website_hashes": {
         "checked_at": "TEXT NOT NULL DEFAULT ''",
@@ -197,7 +201,8 @@ class Database:
         title_norm = signal.get("title", "")[:80].lower()
         rows = self.conn.execute(
             """SELECT title FROM signals
-               WHERE firm_id=? AND signal_type=? AND scraped_at >= ?""",
+               WHERE firm_id=? AND signal_type=?
+               AND COALESCE(scraped_at, seen_at, '') >= ?""",
             (signal["firm_id"], signal["signal_type"], cutoff),
         ).fetchall()
         for r in rows:
@@ -242,7 +247,9 @@ class Database:
             datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)
         ).isoformat()
         rows = self.conn.execute(
-            "SELECT * FROM signals WHERE scraped_at >= ? ORDER BY scraped_at DESC",
+            """SELECT * FROM signals
+               WHERE COALESCE(scraped_at, seen_at, '') >= ?
+               ORDER BY COALESCE(scraped_at, seen_at, '') DESC""",
             (cutoff,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -252,8 +259,9 @@ class Database:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = self.conn.execute(
             """SELECT * FROM signals
-               WHERE department=? AND scraped_at >= ?
-               ORDER BY scraped_at DESC""",
+               WHERE department=?
+               AND COALESCE(scraped_at, seen_at, '') >= ?
+               ORDER BY COALESCE(scraped_at, seen_at, '') DESC""",
             (department, cutoff),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -268,13 +276,17 @@ class Database:
         prev_start = (now - timedelta(days=14)).isoformat()
 
         this = self.conn.execute(
-            "SELECT COUNT(*) c FROM signals WHERE firm_id=? AND department=? AND scraped_at>=?",
+            """SELECT COUNT(*) c FROM signals
+               WHERE firm_id=? AND department=?
+               AND COALESCE(scraped_at, seen_at, '') >= ?""",
             (firm_id, department, this_start),
         ).fetchone()["c"]
 
         prev = self.conn.execute(
             """SELECT COUNT(*) c FROM signals
-               WHERE firm_id=? AND department=? AND scraped_at>=? AND scraped_at<?""",
+               WHERE firm_id=? AND department=?
+               AND COALESCE(scraped_at, seen_at, '') >= ?
+               AND COALESCE(scraped_at, seen_at, '') < ?""",
             (firm_id, department, prev_start, this_start),
         ).fetchone()["c"]
 

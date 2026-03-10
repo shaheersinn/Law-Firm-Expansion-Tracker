@@ -11,7 +11,7 @@ PHRASE_BOOST = 2.5
 
 
 class DepartmentClassifier:
-    def __init__(self):
+    def __init__(self, db_path: str | None = None):
         # Pre-compile patterns for speed
         self._kw_patterns: dict[str, list] = {}
         self._ph_patterns: dict[str, list] = {}
