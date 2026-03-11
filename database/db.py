@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 logger = logging.getLogger("database")
 
 # Bump this when you add/change any column — also update tracker.yml cache key
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 LOOKBACK_DAYS  = int(os.getenv("SIGNAL_LOOKBACK_DAYS", "21"))
 
 SCHEMA = """
@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS run_stats (
     error_count     INTEGER NOT NULL DEFAULT 0,
     duration_secs   REAL    NOT NULL DEFAULT 0,
     schema_version  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS scraper_throttle (
+    scraper_name TEXT PRIMARY KEY,
+    last_run_at  TEXT NOT NULL
 );
 """
 
@@ -383,6 +388,40 @@ class Database:
             (last_n,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    #  Scraper throttle
+    # ------------------------------------------------------------------ #
+
+    def get_last_scraper_run(self, scraper_name: str) -> datetime | None:
+        """Return the last time a throttled scraper ran, or None if never."""
+        row = self.conn.execute(
+            "SELECT last_run_at FROM scraper_throttle WHERE scraper_name=?",
+            (scraper_name,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return datetime.fromisoformat(row["last_run_at"])
+        except Exception:
+            return None
+
+    def record_scraper_run(self, scraper_name: str):
+        """Record that a throttled scraper ran right now."""
+        self.conn.execute(
+            """INSERT INTO scraper_throttle (scraper_name, last_run_at)
+               VALUES (?,?)
+               ON CONFLICT(scraper_name) DO UPDATE SET last_run_at=excluded.last_run_at""",
+            (scraper_name, datetime.now(timezone.utc).isoformat()),
+        )
+        self.conn.commit()
+
+    def is_scraper_due(self, scraper_name: str, interval_days: int) -> bool:
+        """Return True if the scraper has not run within the last interval_days."""
+        last = self.get_last_scraper_run(scraper_name)
+        if last is None:
+            return True
+        return datetime.now(timezone.utc) - last >= timedelta(days=interval_days)
 
     # ------------------------------------------------------------------ #
 

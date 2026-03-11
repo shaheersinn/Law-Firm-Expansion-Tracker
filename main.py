@@ -116,7 +116,12 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
     #  COLLECTION PHASE
     # ------------------------------------------------------------------ #
 
-    scrapers = [cls() for cls in SCRAPER_CLASSES]
+    scrapers = []
+    for cls in SCRAPER_CLASSES:
+        if cls is LinkedInScraper:
+            scrapers.append(cls(db=db))
+        else:
+            scrapers.append(cls())
     all_new_signals: list[dict] = []
 
     # Health tracking: scraper_name → total signals found across all firms
