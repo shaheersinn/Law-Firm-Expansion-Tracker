@@ -1,0 +1,23 @@
+# Edge case: Non-ASCII city and firm name, no city set, future effective_date far out,
+# related_records present, no headcount, unverified confidence.
+record_id: muller-partners-new-office-zurich-2026
+firm_name: "Müller & Partners LLP"
+expansion_type: new_office
+practice_areas:
+  - Tax
+  - Regulatory & Compliance
+country: CH
+city: "Zürich"
+announced_date: "2026-01-10"
+effective_date: "2027-07-01"
+source_url: "https://www.muellerpartners.ch/news/zurich-office-2026"
+source_type: legal_news
+confidence: medium
+status: under_review
+related_records:
+  - muller-partners-new-jurisdiction-license-ch-2026
+notes: "Announced via legal news only; effective date is 18 months after announcement. City contains non-ASCII (Zürich) — preserved."
+created_at: "2026-01-10T08:00:00Z"
+last_modified: "2026-01-12T14:00:00Z"
+schema_version: "1.0.0"
+created_by: "testuser"

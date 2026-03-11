@@ -1,0 +1,21 @@
+record_id: blg-office-expansion-calgary-2026
+firm_name: "Borden Ladner Gervais LLP"
+expansion_type: office_expansion
+practice_areas:
+  - Energy & Natural Resources
+country: CA
+region: Alberta
+city: Calgary
+announced_date: "2026-01-28"
+effective_date: "2026-03-01"
+source_url: "https://www.blg.com/en/news-and-publications/2026/blg-welcomes-energy-group"
+source_type: firm_press_release
+confidence: confirmed
+status: published
+related_records:
+  - blg-lateral-hire-group-energy-calgary-2026
+notes: "Calgary office floor space expanded to accommodate the incoming lateral energy group. Same announcement as the lateral hire."
+created_at: "2026-01-28T10:05:00Z"
+last_modified: "2026-02-16T09:05:00Z"
+schema_version: "1.0.0"
+created_by: "shaheersinn"

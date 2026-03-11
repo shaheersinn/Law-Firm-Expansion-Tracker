@@ -1,0 +1,11 @@
+# Invalid: missing required fields (no firm_name, no practice_areas, no source_url)
+record_id: invalid-missing-fields
+expansion_type: new_office
+country: US
+announced_date: "2026-01-01"
+source_type: firm_press_release
+confidence: confirmed
+status: draft
+created_at: "2026-01-01T00:00:00Z"
+last_modified: "2026-01-01T00:00:00Z"
+schema_version: "1.0.0"
