@@ -81,6 +81,7 @@ jobs:
           GITHUB_RUN_ID:      ${{ github.run_id }}
           GITHUB_REPOSITORY:  ${{ github.repository }}
           SIGNAL_LOOKBACK_DAYS: ${{ env.SIGNAL_LOOKBACK_DAYS }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
           FIRM="${{ github.event.inputs.firm }}"
