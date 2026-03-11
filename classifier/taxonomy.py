@@ -234,3 +234,6 @@ DEPARTMENTS: dict[str, dict] = {
 
 # Flat list of department names (used in various places)
 DEPARTMENT_NAMES = list(DEPARTMENTS.keys())
+
+# Backward-compatible alias used by the v2 learner.
+TAXONOMY = DEPARTMENTS
