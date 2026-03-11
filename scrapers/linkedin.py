@@ -1,24 +1,33 @@
 """
-LinkedIn Scraper — RapidAPI Backend
-=====================================
-Uses RapidAPI instead of scraping LinkedIn directly (which blocks bots).
+LinkedIn Scraper — RapidAPI Backend + Public Fallback
+======================================================
+Two execution modes:
 
-Three data sources, all via RapidAPI:
+  PUBLIC MODE  (runs every cycle, no API key needed)
+  ─────────────────────────────────────────────────
+  Tries to fetch publicly accessible LinkedIn company-page snippets and
+  job-search result pages directly via HTTP.  LinkedIn frequently blocks
+  these requests (403/429) — signals are only emitted when a real response
+  is received.  No cost; runs on every tracker cycle.
 
-  1. PEOPLE SEARCH  (Fresh LinkedIn Profile Data)
-     → Find lawyers who recently changed jobs to/from tracked firms
-     → Endpoint: /get-profile-data-by-url or /search-employees
-     → Best signal: lateral_hire (3.5× weight for partners)
+  RAPIDAPI MODE  (runs at most once per calendar month)
+  ─────────────────────────────────────────────────────
+  Uses three paid RapidAPI endpoints for rich structured data:
+    1. PEOPLE SEARCH  (Fresh LinkedIn Profile Data)
+       → Find lawyers who recently changed jobs to/from tracked firms
+       → Endpoint: /get-profile-data-by-url or /search-employees
+       → Best signal: lateral_hire (3.5× weight for partners)
+    2. JOB POSTINGS  (LinkedIn Jobs Search)
+       → Active job postings by firm (where they're hiring = where they're growing)
+       → Endpoint: /search-jobs
+       → Signals: job_posting / lateral_hire (for partner-level roles)
+    3. COMPANY POSTS  (LinkedIn Company Updates)
+       → Company page announcements (hire announcements, deals, office openings)
+       → Endpoint: /company-updates
+       → Signals: lateral_hire, press_release
 
-  2. JOB POSTINGS  (LinkedIn Jobs Search)
-     → Active job postings by firm (where they're hiring = where they're growing)
-     → Endpoint: /search-jobs
-     → Signals: job_posting / lateral_hire (for partner-level roles)
-
-  3. COMPANY POSTS  (LinkedIn Company Updates)
-     → Company page announcements (hire announcements, deals, office openings)
-     → Endpoint: /company-updates
-     → Signals: lateral_hire, press_release
+  The last run timestamp is stored in the tracker database so the monthly
+  limit persists across GitHub Actions runs.
 
 RapidAPI key setup:
   1. Go to https://rapidapi.com and create a free account
@@ -40,12 +49,15 @@ Changelog:
   - Initial version: replaces direct LinkedIn HTML scraping with RapidAPI
   - Graceful degradation: if RAPIDAPI_KEY is empty, logs a warning and returns []
   - Rate-limit aware: 1s sleep between API calls
+  - Monthly throttle: RapidAPI calls limited to once per 30 days; public
+    scraping continues every cycle regardless of throttle state.
 """
 
 import os
 import re
 import time
 import logging
+from datetime import timedelta
 
 try:
     from scrapers.base import BaseScraper
@@ -61,6 +73,10 @@ RAPIDAPI_KEY  = os.getenv("RAPIDAPI_KEY", "")
 RAPIDAPI_HOST_PROFILES = "fresh-linkedin-profile-data.p.rapidapi.com"
 RAPIDAPI_HOST_JOBS     = "linkedin-jobs-search.p.rapidapi.com"
 RAPIDAPI_HOST_COMPANY  = "linkedin-company-updates.p.rapidapi.com"
+
+# Minimum days between RapidAPI calls (≈ one calendar month)
+RAPIDAPI_THROTTLE_DAYS = 30
+RAPIDAPI_THROTTLE_KEY  = "LinkedInScraper_RapidAPI"
 
 # ── Seniority multipliers ─────────────────────────────────────────────────────
 SENIORITY = {
@@ -111,18 +127,144 @@ def _rapid_headers(host: str) -> dict:
 class LinkedInScraper(BaseScraper):
     name = "LinkedInScraper"
 
+    def __init__(self, db=None):
+        super().__init__()
+        self._db = db  # optional Database instance for monthly throttle tracking
+        # In-memory flag: True once we've confirmed RapidAPI is due this cycle.
+        # Avoids re-checking the DB on every firm and ensures all firms in a
+        # single run get the same consistent answer.
+        self._rapidapi_active: bool | None = None
+
     def fetch(self, firm: dict) -> list[dict]:
+        signals = []
+
+        # ── Public LinkedIn (runs every cycle, no API key needed) ─────────
+        signals.extend(self._fetch_public(firm))
+
+        # ── RapidAPI LinkedIn (runs at most once per 30 days) ─────────────
         if not RAPIDAPI_KEY:
             self.logger.warning(
-                "RAPIDAPI_KEY not set — LinkedIn scraper disabled. "
+                "RAPIDAPI_KEY not set — LinkedIn RapidAPI scraper disabled. "
                 "Add it to GitHub Secrets to enable rich LinkedIn signals."
             )
-            return []
+            return signals
 
-        signals = []
+        if not self._rapidapi_enabled():
+            self.logger.info(
+                "LinkedInScraper: RapidAPI calls skipped — already ran within "
+                f"the last {RAPIDAPI_THROTTLE_DAYS} days."
+            )
+            return signals
+
         signals.extend(self._scrape_people_search(firm))
         signals.extend(self._scrape_job_postings(firm))
         signals.extend(self._scrape_company_posts(firm))
+        return signals
+
+    # ── Monthly throttle helpers ──────────────────────────────────────────
+
+    def _rapidapi_enabled(self) -> bool:
+        """
+        Returns True if RapidAPI calls should run this cycle.
+        The result is cached in memory so every firm in a single run gets
+        consistent treatment.  The DB throttle timestamp is written once
+        at the start of the first firm's processing so the 30-day window
+        begins from the first call of the cycle.
+        """
+        if self._rapidapi_active is None:
+            due = (
+                self._db.is_scraper_due(RAPIDAPI_THROTTLE_KEY, RAPIDAPI_THROTTLE_DAYS)
+                if self._db is not None
+                else True  # no DB → always allow (safe fallback)
+            )
+            self._rapidapi_active = due
+            if due and self._db is not None:
+                # Record the run immediately so the 30-day clock starts now.
+                self._db.record_scraper_run(RAPIDAPI_THROTTLE_KEY)
+                self.logger.info(
+                    "LinkedInScraper: RapidAPI monthly window opened — "
+                    f"next RapidAPI run due in {RAPIDAPI_THROTTLE_DAYS} days."
+                )
+        return self._rapidapi_active
+
+    # ── Public LinkedIn (no API key, runs every cycle) ────────────────────
+
+    def _fetch_public(self, firm: dict) -> list[dict]:
+        """
+        Attempt to read publicly accessible LinkedIn pages without an API key.
+        LinkedIn frequently blocks these requests (403/429) — this is expected.
+        Signals are only emitted when a real response is obtained.
+        """
+        signals = []
+        slug = firm.get("linkedin_slug", "")
+        if not slug:
+            return signals
+
+        # Company page — about / overview section
+        company_url = f"https://www.linkedin.com/company/{slug}/"
+        soup = self._soup(company_url)
+        if soup:
+            for tag in (soup.find_all(["h1", "h2", "p"]) or [])[:20]:
+                text = self._clean(tag.get_text())
+                if len(text) < 20:
+                    continue
+                text_lower = text.lower()
+                is_hire = any(p in text_lower for p in HIRE_PHRASES)
+                is_expansion = any(p in text_lower for p in [
+                    "new office", "opens office", "expands to", "new practice group",
+                    "launches", "proud to announce", "pleased to announce",
+                ])
+                if not (is_hire or is_expansion):
+                    continue
+                cls = classifier.classify_with_fallback(text, title=text[:80])
+                signals.append(self._make_signal(
+                    firm_id=firm["id"],
+                    firm_name=firm["name"],
+                    signal_type="lateral_hire" if is_hire else "press_release",
+                    title=f"[LinkedIn Public] {text[:160]}",
+                    body=text[:700],
+                    url=company_url,
+                    department=cls["department"],
+                    department_score=cls["score"] * 1.5,
+                    matched_keywords=cls["matched_keywords"],
+                ))
+
+        # Public job search page
+        job_search_url = (
+            f"https://www.linkedin.com/jobs/search/"
+            f"?keywords={firm['short'].replace(' ', '+')}&location=Canada"
+        )
+        soup = self._soup(job_search_url)
+        if soup:
+            for tag in (soup.find_all(["h3", "a"]) or [])[:30]:
+                text = self._clean(tag.get_text())
+                if len(text) < 10:
+                    continue
+                lower = text.lower()
+                if not any(t in lower for t in [
+                    "associate", "articling", "counsel", "lawyer", "partner", "clerk"
+                ]):
+                    continue
+                href = tag.get("href", job_search_url)
+                if not href.startswith("http"):
+                    href = f"https://www.linkedin.com{href}"
+                cls = classifier.classify_with_fallback(text, title=text[:80])
+                weight = self._seniority_weight(lower)
+                signals.append(self._make_signal(
+                    firm_id=firm["id"],
+                    firm_name=firm["name"],
+                    signal_type="job_posting",
+                    title=f"[LinkedIn Jobs] {text[:160]}",
+                    body=text,
+                    url=href,
+                    department=cls["department"],
+                    department_score=cls["score"] * weight,
+                    matched_keywords=cls["matched_keywords"],
+                ))
+
+        self.logger.info(
+            f"[{firm['short']}] LinkedIn public: {len(signals)} signal(s)"
+        )
         return signals
 
     # ── 1. PEOPLE SEARCH — lateral hire detection ────────────────────────────
