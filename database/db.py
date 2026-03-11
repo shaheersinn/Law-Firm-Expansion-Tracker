@@ -138,6 +138,14 @@ def _compute_confidence(signal: dict) -> float:
     return round(0.4 * type_score + 0.4 * kw_score + 0.2 * url_score, 3)
 
 
+def _serialize_keywords(keywords) -> str:
+    if not keywords:
+        return ""
+    if isinstance(keywords, str):
+        return keywords
+    return json.dumps(list(keywords))
+
+
 class Database:
     def __init__(self, path: str = "law_firm_tracker.db"):
         self.path = path
@@ -211,15 +219,20 @@ class Database:
         return False
 
     def save_signal(self, signal: dict):
-        kw         = json.dumps(signal.get("matched_keywords", []))
+        kw         = _serialize_keywords(signal.get("matched_keywords", []))
         confidence = _compute_confidence(signal)
+        seen_at    = signal.get("seen_at") or signal.get("scraped_at") \
+            or datetime.now(timezone.utc).isoformat()
+        dedup_key  = signal.get("dedup_key") or hashlib.md5(
+            f"{signal['firm_id']}|{signal['signal_type']}|{signal.get('url', '')}|{signal['title'][:80]}".encode()
+        ).hexdigest()
         try:
             self.conn.execute(
                 """INSERT OR IGNORE INTO signals
                    (firm_id, firm_name, signal_type, title, body, url,
-                    department, department_score, confidence, matched_keywords,
-                    source, published_at, scraped_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     department, department_score, confidence, matched_keywords,
+                     source, published_at, scraped_at, seen_at, dedup_key)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     signal["firm_id"],
                     signal["firm_name"],
@@ -235,6 +248,8 @@ class Database:
                     signal.get("published_at", ""),
                     signal.get("scraped_at",
                                datetime.now(timezone.utc).isoformat()),
+                    seen_at,
+                    dedup_key,
                 ),
             )
             self.conn.commit()
