@@ -229,7 +229,6 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
 
     weekly_signals  = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes  = analyzer.detect_website_changes(all_new_signals)
 
     for alert in expansion_alerts:
         db.save_weekly_score(
@@ -261,7 +260,7 @@ def _send_digest(
 ):
     weekly_signals   = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes  = analyzer.detect_website_changes([])
+    website_changes  = analyzer.detect_website_changes(new_signals or [])
 
     new_alerts = [
         a for a in expansion_alerts

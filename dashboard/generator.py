@@ -3,10 +3,9 @@ Dashboard generator — produces docs/index.html
 A static single-file dashboard showing signals and alerts.
 """
 
-import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 logger = logging.getLogger("dashboard")
 
@@ -71,8 +70,6 @@ class DashboardGenerator:
                 f"<td>{s.get('department','')}</td>"
                 f"<td>{linked}</td></tr>\n"
             )
-
-        dash_url = os.getenv("DASHBOARD_URL", "#")
 
         return f"""<!DOCTYPE html>
 <html lang="en">

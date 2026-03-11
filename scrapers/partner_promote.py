@@ -10,7 +10,6 @@ Sources:
   - The Lawyer's Daily RSS
 """
 
-import re
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 

@@ -24,7 +24,7 @@ import math
 from collections import Counter, defaultdict
 
 from classifier.taxonomy import TAXONOMY
-from learning.schedule import BOOTSTRAP_ALPHA, STABLE_ALPHA
+from learning.schedule import STABLE_ALPHA
 
 logger = logging.getLogger("learning.keyword_learner_v2")
 
@@ -127,7 +127,6 @@ class KeywordLearnerV2:
 
                 prev_mult    = row[0] if row else 1.0
                 prev_prev    = row[1] if row else 1.0
-                old_momentum = row[2] if row else 0.0
                 prev_samples = row[3] if row else 0
 
                 new_samples = prev_samples + total

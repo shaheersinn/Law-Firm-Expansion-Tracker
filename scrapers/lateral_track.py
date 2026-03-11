@@ -8,7 +8,6 @@ Monitors lateral partner hire announcements from:
 Lateral hires are the highest-conviction expansion signal.
 """
 
-import re
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 

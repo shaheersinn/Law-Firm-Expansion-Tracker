@@ -13,7 +13,7 @@ Each cycle:
 At the end prints a full audit report.
 """
 
-import sys, os, json, time, random, hashlib, traceback, sqlite3, re
+import sys, os, time, random, hashlib, traceback, re
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -30,10 +30,9 @@ os.environ.setdefault("DB_PATH",            "/tmp/test_tracker_50.db")
 from config import Config
 from database.db import Database
 from analysis.signals import ExpansionAnalyzer
-from alerts.notifier import Notifier, _clean_title, _fmt_breakdown, _strength_badge, _page_name_from_url
+from alerts.notifier import Notifier, _clean_title
 from dashboard.generate import generate_dashboard
 from learning.evolution import run_evolution
-from learning.schedule import LearningSchedule
 from classifier.department import DepartmentClassifier
 
 # ── synthetic data ────────────────────────────────────────────────────────────
@@ -342,7 +341,7 @@ def run_50_cycles():
     print("\n" + "=" * 70)
     print("  FINAL AUDIT REPORT")
     print("=" * 70)
-    print(f"  Cycles:            50")
+    print("  Cycles:            50")
     print(f"  Total signals in:  {total_signals_inserted}")
     print(f"  Total alerts:      {total_alerts_generated}")
     print(f"  Website changes:   {total_website_changes}")

@@ -5,7 +5,7 @@ Phrase matches (multi-word) receive a 2.5× boost over single-word keywords.
 """
 
 import re
-from classifier.taxonomy import DEPARTMENTS, DEPARTMENT_NAMES
+from classifier.taxonomy import DEPARTMENTS
 
 PHRASE_BOOST = 2.5
 

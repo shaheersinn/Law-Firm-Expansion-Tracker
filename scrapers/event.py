@@ -46,7 +46,6 @@ class EventScraper(BaseScraper):
 
     def fetch(self, firm: dict) -> list[dict]:
         signals = []
-        firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])
 
         # Firm's own events page
         for suffix in ["/events", "/en/events", "/news-events", "/speaking"]:

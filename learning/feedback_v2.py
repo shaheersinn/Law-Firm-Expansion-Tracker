@@ -16,8 +16,6 @@ signal faster.
 """
 
 import logging
-import sqlite3
-from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 def _parse_dt(s):

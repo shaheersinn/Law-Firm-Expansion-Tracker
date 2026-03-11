@@ -16,7 +16,7 @@ import re
 import time as _time
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier

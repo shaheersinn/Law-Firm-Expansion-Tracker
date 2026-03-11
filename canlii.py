@@ -20,9 +20,7 @@ API: CanLII has a free REST API (no auth required for search).
 Docs: https://api.canlii.org/v1/
 """
 
-import re
 import time
-from collections import defaultdict
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 

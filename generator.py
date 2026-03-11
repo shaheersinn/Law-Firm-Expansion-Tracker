@@ -11,7 +11,6 @@ No firm tiers — pure merit ranking by expansion score.
 
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 

@@ -13,8 +13,6 @@ appear in RSS feeds within hours, days before the firm's own news page
 is updated.
 """
 
-import re
-import time
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 

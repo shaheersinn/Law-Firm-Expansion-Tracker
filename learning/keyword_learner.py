@@ -14,9 +14,7 @@ recurring n-grams not yet in the taxonomy and logs them as candidates.
 """
 
 import re
-import json
 import logging
-import sqlite3
 from collections import Counter, defaultdict
 from classifier.taxonomy import TAXONOMY
 

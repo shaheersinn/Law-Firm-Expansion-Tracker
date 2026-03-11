@@ -20,7 +20,7 @@ whether to actually update weights or skip (fast no-op if too soon).
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 def _parse_dt(s):
     """Parse ISO datetime string, treating naive values as UTC."""

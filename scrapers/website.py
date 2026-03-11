@@ -4,7 +4,6 @@ Scrapes firm practice area pages and detects content changes.
 A changed practice page often signals a new group being built out.
 """
 
-import hashlib
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier
 
@@ -41,8 +40,6 @@ class WebsiteScraper(BaseScraper):
 
             text = soup.get_text(separator=" ")
             dept, score, kw = _clf.top_department(text[:2000])
-
-            content_hash = hashlib.sha256(text.encode()).hexdigest()
 
             signals.append(self._make_signal(
                 firm_id=firm["id"],
