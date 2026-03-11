@@ -45,6 +45,33 @@ from scrapers.diversity import DiversityScraper
 from scrapers.cipo import CIPOScraper
 from scrapers.event import EventScraper
 from scrapers.signal_crossref import SignalCrossRefScraper
+# 20 new scrapers
+from scrapers.merger_news import MergerNewsScraper
+from scrapers.osc_track import OSCTrackScraper
+from scrapers.partner_promote import PartnerPromoteScraper
+from scrapers.inhouse_move import InhouseMoveScraper
+from scrapers.pro_bono import ProBonoScraper
+from scrapers.legal_tech import LegalTechScraper
+from scrapers.bench_appt import BenchApptScraper
+from scrapers.law360 import Law360CanadaScraper
+from scrapers.precedent_rank import PrecedentRankScraper
+from scrapers.cba_section import CBASectionScraper
+from scrapers.foreign_office import ForeignOfficeScraper
+from scrapers.practice_launch import PracticeLaunchScraper
+from scrapers.counsel_move import CounselMoveScraper
+from scrapers.lexpert_rank import LexpertRankScraper
+from scrapers.bnn_track import BNNTrackScraper
+from scrapers.capital_markets_monitor import CapitalMarketsMonitor
+from scrapers.insolvency_monitor import InsolvencyMonitorScraper
+from scrapers.competition_track import CompetitionTrackScraper
+from scrapers.regulatory_track import RegulatoryTrackScraper
+from scrapers.private_equity_track import PrivateEquityTrackScraper
+from scrapers.esg_award import ESGAwardScraper
+from scrapers.infrastructure_track import InfrastructureTrackScraper
+from scrapers.immigration_track import ImmigrationTrackScraper
+from scrapers.healthcare_law_track import HealthcareLawTrackScraper
+from scrapers.tax_law_track import TaxLawTrackScraper
+from scrapers.employment_law_track import EmploymentLawTrackScraper
 from analysis.signals import ExpansionAnalyzer
 from alerts.notifier import Notifier
 from dashboard.generator import DashboardGenerator
@@ -61,33 +88,71 @@ logger = logging.getLogger("main")
 
 # Scraper order matters: lateral/media first, crossref last
 SCRAPER_CLASSES = [
+    # ── High-conviction lateral / deal signals ───────────────────────
     LateralTrackScraper,
+    MergerNewsScraper,
+    PartnerPromoteScraper,
     DealTrackScraper,
+    CapitalMarketsMonitor,
+    PrivateEquityTrackScraper,
+    InsolvencyMonitorScraper,
+    # ── Media & news ─────────────────────────────────────────────────
     MediaScraper,
+    Law360CanadaScraper,
+    BNNTrackScraper,
+    # ── Firm intelligence ────────────────────────────────────────────
     OfficeTracker,
+    ForeignOfficeScraper,
+    PracticeLaunchScraper,
     RecruiterScraper,
+    JobsScraper,
     GoogleNewsScraper,
-    PressScraper,
-    PublicationsScraper,
-    WebsiteScraper,
+    # ── Rankings & awards ────────────────────────────────────────────
     ChambersScraper,
     AwardsScraper,
+    LexpertRankScraper,
+    PrecedentRankScraper,
+    ESGAwardScraper,
+    # ── Bar, bench & association ─────────────────────────────────────
     BarAssociationScraper,
-    JobsScraper,
-    LawSchoolScraper,
-    RSSFeedScraper,
+    CBASectionScraper,
+    BenchApptScraper,
+    # ── Publications & thought leadership ───────────────────────────
+    PressScraper,
+    PublicationsScraper,
+    ThoughtLeaderScraper,
+    PodcastScraper,
+    # ── Practice-area specialist scrapers ────────────────────────────
+    CompetitionTrackScraper,
+    RegulatoryTrackScraper,
+    OSCTrackScraper,
+    TaxLawTrackScraper,
+    EmploymentLawTrackScraper,
+    InfrastructureTrackScraper,
+    HealthcareLawTrackScraper,
+    ImmigrationTrackScraper,
+    LegalTechScraper,
+    ProBonoScraper,
+    # ── People movements ─────────────────────────────────────────────
+    InhouseMoveScraper,
+    CounselMoveScraper,
+    AlumniTrackScraper,
+    # ── Government / regulatory filings ─────────────────────────────
     GovTrackScraper,
     SedarScraper,
-    ConferenceScraper,
     LobbyistScraper,
-    CanLIIScraper,
-    LinkedInScraper,
-    PodcastScraper,
-    AlumniTrackScraper,
-    ThoughtLeaderScraper,
-    DiversityScraper,
     CIPOScraper,
+    CanLIIScraper,
+    # ── Events & conferences ─────────────────────────────────────────
+    ConferenceScraper,
     EventScraper,
+    # ── Feed aggregators ─────────────────────────────────────────────
+    RSSFeedScraper,
+    LawSchoolScraper,
+    LinkedInScraper,
+    DiversityScraper,
+    # ── Website snapshots ────────────────────────────────────────────
+    WebsiteScraper,
     # SignalCrossRefScraper added per-firm below (needs run context)
 ]
 

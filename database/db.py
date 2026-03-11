@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS signals (
     matched_keywords TEXT,
     source           TEXT,
     published_at     TEXT,
-    scraped_at       TEXT    NOT NULL,
+    scraped_at       TEXT    NOT NULL DEFAULT '',
+    seen_at          TEXT    DEFAULT '',
+    dedup_key        TEXT    DEFAULT '',
     UNIQUE(firm_id, signal_type, url)
 );
 
@@ -99,6 +101,8 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "source":           "TEXT DEFAULT ''",
         "published_at":     "TEXT DEFAULT ''",
         "scraped_at":       "TEXT NOT NULL DEFAULT ''",
+        "seen_at":          "TEXT DEFAULT ''",
+        "dedup_key":        "TEXT DEFAULT ''",
     },
     "website_hashes": {
         "checked_at": "TEXT NOT NULL DEFAULT ''",
