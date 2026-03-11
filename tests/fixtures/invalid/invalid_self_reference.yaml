@@ -1,0 +1,18 @@
+# Invalid: self-reference in related_records
+record_id: self-ref-record-2026
+firm_name: "Self Ref Law LLP"
+expansion_type: new_office
+practice_areas:
+  - Tax
+country: US
+city: "New York"
+announced_date: "2026-01-01"
+source_url: "https://www.selfreflaw.com/news"
+source_type: firm_press_release
+confidence: confirmed
+status: draft
+related_records:
+  - self-ref-record-2026
+created_at: "2026-01-01T00:00:00Z"
+last_modified: "2026-01-01T00:00:00Z"
+schema_version: "1.0.0"
