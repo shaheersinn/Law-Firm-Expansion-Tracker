@@ -181,6 +181,60 @@ RSS_FEEDS = [
         "url": "https://www.itworldcanada.com/blog/feed",
         "weight": 1.3,
     },
+    # ── AI / Technology Law ───────────────────────────────────────────────
+    {
+        "name": "AI Regulation Today",
+        "url": "https://airegulationtoday.com/feed/",
+        "weight": 1.8,
+    },
+    {
+        "name": "Cybersecurity Law Report",
+        "url": "https://www.cybersecuritylawreport.com/feed/",
+        "weight": 1.8,
+    },
+    # ── M&A / Deals ───────────────────────────────────────────────────────
+    {
+        "name": "BNN Bloomberg",
+        "url": "https://www.bnnbloomberg.ca/technology/feed/",
+        "weight": 1.8,
+        "fallback_url": "https://www.bnnbloomberg.ca/feed/",
+    },
+    {
+        "name": "Mergers & Acquisitions Canada",
+        "url": "https://www.canadianlawyermag.com/practice-areas/mergers-acquisitions/rss/",
+        "weight": 2.0,
+    },
+    # ── Crypto / Digital Assets ───────────────────────────────────────────
+    {
+        "name": "Osler Insights",
+        "url": "https://www.osler.com/en/resources/cross-country-connections/rss/",
+        "weight": 2.5,
+    },
+    {
+        "name": "Blakes Bulletin",
+        "url": "https://www.blakes.com/insights/bulletins/rss/",
+        "weight": 2.5,
+    },
+    {
+        "name": "McCarthy Insights",
+        "url": "https://www.mccarthy.ca/en/insights/rss/",
+        "weight": 2.5,
+    },
+    {
+        "name": "Stikeman Updates",
+        "url": "https://www.stikeman.com/en-ca/kh/insights/rss/",
+        "weight": 2.5,
+    },
+    {
+        "name": "BLG Insights",
+        "url": "https://blg.com/en/insights/rss/",
+        "weight": 2.5,
+    },
+    {
+        "name": "Bennett Jones Insights",
+        "url": "https://www.bennettjones.com/Publications/RSS/",
+        "weight": 2.5,
+    },
 ]
 
 # Lateral hire / appointment signals
@@ -190,6 +244,9 @@ LATERAL_PHRASES = [
     "appointed partner", "promoted to partner", "new associate",
     "new counsel", "joins as", "moves to", "moves from",
     "is pleased to announce", "pleased to welcome",
+    "named to", "appointed to", "elected partner", "makes partner",
+    "bolsters practice", "strengthens team", "adds partner",
+    "recruits", "hire announcement", "new hire", "incoming partner",
 ]
 
 # Deal / advisory signals
@@ -198,12 +255,19 @@ DEAL_PHRASES = [
     "represented", "acting for", "legal counsel",
     "successfully completed", "closes", "closed", "announces",
     "transaction counsel", "lead counsel",
+    "deal counsel", "sole counsel", "co-counsel",
+    "mandated", "retained", "engaged by", "acting as",
+    "acquisition of", "merger with", "joint venture",
+    "financing of", "credit facility", "capital raise",
 ]
 
 # Expansion / office signals
 EXPANSION_PHRASES = [
     "opens office", "new office", "expands to", "launches",
     "establishes presence", "new practice group", "bolsters",
+    "opens new", "new location", "opens in", "establishing",
+    "growing its", "expanded its", "entered into", "strategic alliance",
+    "combination with", "merger agreement",
 ]
 
 
@@ -255,17 +319,28 @@ class RSSFeedScraper(BaseScraper):
 
         patterns = _build_name_patterns(firm)
         signals = []
+        feed_hits = {}   # feed_name → count for diagnostics
 
         for feed_meta in RSS_FEEDS:
             try:
                 new = self._process_feed(firm, patterns, feed_meta)
                 signals.extend(new)
+                if new:
+                    feed_hits[feed_meta["name"]] = len(new)
             except Exception as exc:
                 self.logger.debug(
                     f"[{firm['short']}] RSS error on {feed_meta['name']}: {exc}"
                 )
 
         self.logger.info(f"[{firm['short']}] RSS total: {len(signals)} signal(s)")
+        if signals:
+            hits_str = ", ".join(f"{k}:{v}" for k, v in feed_hits.items())
+            self.logger.debug(f"[{firm['short']}] RSS hits by feed: {hits_str}")
+        elif self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"[{firm['short']}] RSS: 0 matches across {len(RSS_FEEDS)} feeds "
+                f"(patterns: {[p.pattern for p in patterns[:3]]})"
+            )
         return signals
 
     # ------------------------------------------------------------------ #
@@ -324,10 +399,17 @@ class RSSFeedScraper(BaseScraper):
                 weight_mult = 1.0
 
             classifications = classifier.classify(full, top_n=1)
-            if not classifications:
-                continue
+            if classifications:
+                cls          = classifications[0]
+                dept         = cls["department"]
+                dept_score   = cls["score"] * feed_meta["weight"] * weight_mult
+                matched_kw   = cls["matched_keywords"]
+            else:
+                # No department matched — still capture the firm mention as General
+                dept         = "General"
+                dept_score   = feed_meta["weight"] * weight_mult * 0.5
+                matched_kw   = []
 
-            cls = classifications[0]
             signals.append(self._make_signal(
                 firm_id=firm["id"],
                 firm_name=firm["name"],
@@ -335,9 +417,9 @@ class RSSFeedScraper(BaseScraper):
                 title=f"[{feed_meta['name']}] {title[:180]}",
                 body=summary[:700],
                 url=link,
-                department=cls["department"],
-                department_score=cls["score"] * feed_meta["weight"] * weight_mult,
-                matched_keywords=cls["matched_keywords"],
+                department=dept,
+                department_score=dept_score,
+                matched_keywords=matched_kw,
                 source_date=pub_dt.isoformat() if pub_dt else None,
             ))
 

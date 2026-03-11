@@ -45,33 +45,6 @@ from scrapers.diversity import DiversityScraper
 from scrapers.cipo import CIPOScraper
 from scrapers.event import EventScraper
 from scrapers.signal_crossref import SignalCrossRefScraper
-# 20 new scrapers
-from scrapers.merger_news import MergerNewsScraper
-from scrapers.osc_track import OSCTrackScraper
-from scrapers.partner_promote import PartnerPromoteScraper
-from scrapers.inhouse_move import InhouseMoveScraper
-from scrapers.pro_bono import ProBonoScraper
-from scrapers.legal_tech import LegalTechScraper
-from scrapers.bench_appt import BenchApptScraper
-from scrapers.law360 import Law360CanadaScraper
-from scrapers.precedent_rank import PrecedentRankScraper
-from scrapers.cba_section import CBASectionScraper
-from scrapers.foreign_office import ForeignOfficeScraper
-from scrapers.practice_launch import PracticeLaunchScraper
-from scrapers.counsel_move import CounselMoveScraper
-from scrapers.lexpert_rank import LexpertRankScraper
-from scrapers.bnn_track import BNNTrackScraper
-from scrapers.capital_markets_monitor import CapitalMarketsMonitor
-from scrapers.insolvency_monitor import InsolvencyMonitorScraper
-from scrapers.competition_track import CompetitionTrackScraper
-from scrapers.regulatory_track import RegulatoryTrackScraper
-from scrapers.private_equity_track import PrivateEquityTrackScraper
-from scrapers.esg_award import ESGAwardScraper
-from scrapers.infrastructure_track import InfrastructureTrackScraper
-from scrapers.immigration_track import ImmigrationTrackScraper
-from scrapers.healthcare_law_track import HealthcareLawTrackScraper
-from scrapers.tax_law_track import TaxLawTrackScraper
-from scrapers.employment_law_track import EmploymentLawTrackScraper
 from analysis.signals import ExpansionAnalyzer
 from alerts.notifier import Notifier
 from dashboard.generator import DashboardGenerator
@@ -88,71 +61,33 @@ logger = logging.getLogger("main")
 
 # Scraper order matters: lateral/media first, crossref last
 SCRAPER_CLASSES = [
-    # ── High-conviction lateral / deal signals ───────────────────────
     LateralTrackScraper,
-    MergerNewsScraper,
-    PartnerPromoteScraper,
     DealTrackScraper,
-    CapitalMarketsMonitor,
-    PrivateEquityTrackScraper,
-    InsolvencyMonitorScraper,
-    # ── Media & news ─────────────────────────────────────────────────
     MediaScraper,
-    Law360CanadaScraper,
-    BNNTrackScraper,
-    # ── Firm intelligence ────────────────────────────────────────────
     OfficeTracker,
-    ForeignOfficeScraper,
-    PracticeLaunchScraper,
     RecruiterScraper,
-    JobsScraper,
     GoogleNewsScraper,
-    # ── Rankings & awards ────────────────────────────────────────────
-    ChambersScraper,
-    AwardsScraper,
-    LexpertRankScraper,
-    PrecedentRankScraper,
-    ESGAwardScraper,
-    # ── Bar, bench & association ─────────────────────────────────────
-    BarAssociationScraper,
-    CBASectionScraper,
-    BenchApptScraper,
-    # ── Publications & thought leadership ───────────────────────────
     PressScraper,
     PublicationsScraper,
-    ThoughtLeaderScraper,
-    PodcastScraper,
-    # ── Practice-area specialist scrapers ────────────────────────────
-    CompetitionTrackScraper,
-    RegulatoryTrackScraper,
-    OSCTrackScraper,
-    TaxLawTrackScraper,
-    EmploymentLawTrackScraper,
-    InfrastructureTrackScraper,
-    HealthcareLawTrackScraper,
-    ImmigrationTrackScraper,
-    LegalTechScraper,
-    ProBonoScraper,
-    # ── People movements ─────────────────────────────────────────────
-    InhouseMoveScraper,
-    CounselMoveScraper,
-    AlumniTrackScraper,
-    # ── Government / regulatory filings ─────────────────────────────
+    WebsiteScraper,
+    ChambersScraper,
+    AwardsScraper,
+    BarAssociationScraper,
+    JobsScraper,
+    LawSchoolScraper,
+    RSSFeedScraper,
     GovTrackScraper,
     SedarScraper,
-    LobbyistScraper,
-    CIPOScraper,
-    CanLIIScraper,
-    # ── Events & conferences ─────────────────────────────────────────
     ConferenceScraper,
-    EventScraper,
-    # ── Feed aggregators ─────────────────────────────────────────────
-    RSSFeedScraper,
-    LawSchoolScraper,
+    LobbyistScraper,
+    CanLIIScraper,
     LinkedInScraper,
+    PodcastScraper,
+    AlumniTrackScraper,
+    ThoughtLeaderScraper,
     DiversityScraper,
-    # ── Website snapshots ────────────────────────────────────────────
-    WebsiteScraper,
+    CIPOScraper,
+    EventScraper,
     # SignalCrossRefScraper added per-firm below (needs run context)
 ]
 
@@ -184,6 +119,10 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
     scrapers = [cls() for cls in SCRAPER_CLASSES]
     all_new_signals: list[dict] = []
 
+    # Health tracking: scraper_name → total signals found across all firms
+    scraper_totals: dict[str, int] = {s.name: 0 for s in scrapers}
+    scraper_totals["SignalCrossRefScraper"] = 0
+
     for firm in target_firms:
         logger.info(f"\n{'─' * 50}")
         logger.info(f"Processing: {firm['name']}")
@@ -203,6 +142,7 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
                         if signal["signal_type"] == "website_snapshot":
                             db.save_website_hash(firm["id"], signal["url"], signal.get("body", ""))
 
+                scraper_totals[scraper.name] = scraper_totals.get(scraper.name, 0) + len(fetched)
                 logger.info(f"  {scraper.name:<38} {len(fetched)} signals  ({new_count} new)")
             except Exception as e:
                 logger.error(f"  {scraper.name} failed for {firm['short']}: {e}", exc_info=True)
@@ -217,11 +157,42 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
                     db.save_signal(signal)
                     all_new_signals.append(signal)
                     new_count += 1
+            scraper_totals["SignalCrossRefScraper"] += len(fetched)
             logger.info(f"  {'SignalCrossRefScraper':<38} {len(fetched)} signals  ({new_count} new)")
         except Exception as e:
             logger.error(f"  SignalCrossRefScraper failed for {firm['short']}: {e}", exc_info=True)
 
     logger.info(f"\nTotal new signals this run: {len(all_new_signals)}")
+
+    # ── Scraper health summary ───────────────────────────────────────────
+    silent_scrapers = [name for name, total in scraper_totals.items() if total == 0]
+    if silent_scrapers:
+        logger.warning(
+            f"SCRAPER HEALTH: {len(silent_scrapers)} scrapers returned 0 signals "
+            f"across all firms: {', '.join(silent_scrapers)}"
+        )
+    else:
+        active_count = sum(1 for t in scraper_totals.values() if t > 0)
+        logger.info(f"SCRAPER HEALTH: {active_count}/{len(scraper_totals)} scrapers active")
+
+    # ── Zero-signal run detection — Telegram alert ───────────────────────
+    if len(all_new_signals) == 0:
+        logger.warning(
+            "⚠️  ZERO NEW SIGNALS this run. Possible causes: "
+            "all items already in DB (21-day dedup), scrapers blocked, "
+            "or classifier thresholds too strict."
+        )
+        if hasattr(notifier, "send_health_alert"):
+            notifier.send_health_alert(
+                "⚠️ Zero new signals this run",
+                details=(
+                    f"Silent scrapers: {len(silent_scrapers)}/{len(scraper_totals)}\n"
+                    f"Firms processed: {len(target_firms)}\n"
+                    f"Check: dedup window, scraper logs, network access."
+                ),
+            )
+        else:
+            logger.warning("Notifier.send_health_alert not available — skipping Telegram health alert")
 
     # ------------------------------------------------------------------ #
     #  ANALYSIS PHASE
@@ -261,7 +232,9 @@ def _send_digest(
 ):
     weekly_signals   = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes  = analyzer.detect_website_changes([])
+    # BUG FIX: was passing [] instead of the actual new_signals list,
+    # so website change alerts were never generated during normal runs.
+    website_changes  = analyzer.detect_website_changes(new_signals or [])
 
     new_alerts = [
         a for a in expansion_alerts
@@ -275,7 +248,9 @@ def _send_digest(
     dashboard.generate()
 
     logger.info(
-        f"Digest: {len(new_alerts)} new alerts"
+        f"Digest: {len(new_alerts)} new alerts  |  "
+        f"Weekly signals in DB: {len(weekly_signals)}  |  "
+        f"Website changes: {len(website_changes)}"
     )
 
 

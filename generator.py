@@ -91,6 +91,12 @@ SIGNAL_WEIGHT = {
 
 
 def generate(db, output_path: str = "docs/index.html", repo_url: str = "") -> str:
+    try:
+        from firms import FIRMS as _FIRMS
+        total_tracked_firms = len(_FIRMS)
+    except ImportError:
+        total_tracked_firms = 0
+
     weekly_signals = db.get_signals_this_week()
     generated_at   = datetime.utcnow()
 
@@ -105,7 +111,7 @@ def generate(db, output_path: str = "docs/index.html", repo_url: str = "") -> st
                 "signal_count": 0,
                 "departments":  {},
             }
-        dept = sig.get("department", "Unknown")
+        dept = sig.get("department") or "General"
         if dept not in firms_data[fid]["departments"]:
             firms_data[fid]["departments"][dept] = {
                 "score":   0.0,
@@ -126,6 +132,7 @@ def generate(db, output_path: str = "docs/index.html", repo_url: str = "") -> st
             "type_label": SIGNAL_LABEL.get(sig["signal_type"], sig["signal_type"]),
             "url":        sig.get("url", ""),
             "weight":     w,
+            "date":       (sig.get("published_date") or "")[:10],
         })
         firms_data[fid]["total_score"]  += contribution
         firms_data[fid]["signal_count"] += 1
@@ -152,23 +159,34 @@ def generate(db, output_path: str = "docs/index.html", repo_url: str = "") -> st
             dept_totals[d] = dept_totals.get(d, 0) + 1
     dept_totals_sorted = sorted(dept_totals.items(), key=lambda x: x[1], reverse=True)[:10]
 
+    # Dynamic counts — computed from live data, no hardcoding
+    active_scraper_count = len(type_totals) if type_totals else 0
+    unique_depts         = len(dept_totals) if dept_totals else 0
+    total_tracked        = total_tracked_firms or len(ranked_firms)
+
     payload = {
-        "generated_at":  generated_at.strftime("%d %b %Y · %H:%M UTC"),
-        "week_label":    generated_at.strftime("%B %d, %Y"),
-        "total_signals": len(weekly_signals),
-        "total_firms":   len(ranked_firms),
-        "firms":         ranked_firms,
-        "max_score":     max_score,
-        "type_totals":   type_totals,
-        "dept_totals":   dept_totals_sorted,
-        "repo_url":      repo_url,
+        "generated_at":         generated_at.strftime("%d %b %Y · %H:%M UTC"),
+        "week_label":           generated_at.strftime("%B %d, %Y"),
+        "total_signals":        len(weekly_signals),
+        "total_firms":          len(ranked_firms),
+        "total_tracked_firms":  total_tracked,
+        "active_scraper_count": active_scraper_count,
+        "unique_depts":         unique_depts,
+        "firms":                ranked_firms,
+        "max_score":            max_score,
+        "type_totals":          type_totals,
+        "dept_totals":          dept_totals_sorted,
+        "repo_url":             repo_url,
     }
 
     html = _render_html(payload)
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
-    logger.info(f"Dashboard written → {output_path} ({len(html):,} bytes)")
+    logger.info(
+        f"Dashboard → {output_path} "
+        f"({len(weekly_signals)} signals, {len(ranked_firms)}/{total_tracked} firms active)"
+    )
 
     if repo_url:
         parts = repo_url.rstrip("/").split("/")
@@ -179,14 +197,17 @@ def generate(db, output_path: str = "docs/index.html", repo_url: str = "") -> st
 
 
 def _render_html(data: dict) -> str:
-    firms_json        = json.dumps(data["firms"],      ensure_ascii=False)
-    type_totals_json  = json.dumps(data["type_totals"])
-    dept_totals_json  = json.dumps(data["dept_totals"])
-    max_score         = data["max_score"]
-    total_signals     = data["total_signals"]
-    total_firms       = data["total_firms"]
-    generated_at      = data["generated_at"]
-    week_label        = data["week_label"]
+    firms_json              = json.dumps(data["firms"],      ensure_ascii=False)
+    type_totals_json        = json.dumps(data["type_totals"])
+    dept_totals_json        = json.dumps(data["dept_totals"])
+    max_score               = data["max_score"]
+    total_signals           = data["total_signals"]
+    total_firms             = data["total_firms"]
+    generated_at            = data["generated_at"]
+    week_label              = data["week_label"]
+    total_tracked_firms     = data.get("total_tracked_firms",  total_firms)
+    active_scraper_count    = data.get("active_scraper_count", "—")
+    unique_depts            = data.get("unique_depts",         "—")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1013,7 +1034,7 @@ footer a:hover {{ text-decoration: underline; }}
     </div>
     <div class="header-meta">
       <span class="header-pill">{generated_at}</span>
-      <span class="header-pill">26 firms</span>
+      <span class="header-pill">{total_tracked_firms} firms</span>
       <span class="header-pill live-pill">
         <span class="live-dot"></span>Live
       </span>
@@ -1029,7 +1050,7 @@ footer a:hover {{ text-decoration: underline; }}
       Firm Expansion<br><em>Intelligence</em>
     </h1>
     <p class="hero-desc">
-      Real-time signals from 8 scrapers — bar association leadership,
+      Real-time signals from {active_scraper_count} active scrapers — bar association leadership,
       Chambers rankings, CanLII court records, lateral hires, job postings,
       and more. Ranked by weighted expansion score.
     </p>
@@ -1116,7 +1137,7 @@ footer a:hover {{ text-decoration: underline; }}
 
 <footer>
   <span>Canadian Law Firm Intelligence Report</span>
-  <span>8 scrapers · 26 firms · 17 departments</span>
+  <span>{active_scraper_count} scrapers · {total_tracked_firms} firms · {unique_depts} departments</span>
   <span>Generated {generated_at}</span>
 </footer>
 

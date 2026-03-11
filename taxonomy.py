@@ -284,6 +284,74 @@ DEPARTMENTS = [
             "alternative finance and procurement", "afp",
         ],
     },
+    # ── Modern / Emerging Practice Areas ─────────────────────────────────────
+    {
+        "name": "Technology & AI Law",
+        "keywords": [
+            "artificial intelligence", "ai", "machine learning", "algorithm",
+            "automation", "software", "saas", "platform", "cloud", "data",
+            "technology", "tech", "digital", "cybersecurity", "cyber",
+            "privacy", "gdpr", "pipeda", "biometric", "facial recognition",
+            "autonomous", "robotics", "internet of things", "iot",
+        ],
+        "phrases": [
+            "artificial intelligence law", "ai regulation", "ai governance",
+            "technology law", "data governance", "privacy law",
+            "cyber law", "cybersecurity law", "data breach",
+            "software licensing", "tech transactions", "platform liability",
+            "algorithmic accountability", "responsible ai",
+            "ai ethics", "machine learning model", "generative ai",
+            "large language model", "llm", "chatgpt", "openai",
+            "digital transformation", "technology transaction",
+            "data residency", "cloud computing law",
+        ],
+    },
+    {
+        "name": "Crypto & Digital Assets",
+        "keywords": [
+            "crypto", "cryptocurrency", "bitcoin", "ethereum", "blockchain",
+            "token", "nft", "defi", "dao", "stablecoin", "cbdc",
+            "digital asset", "exchange", "wallet", "mining",
+            "distributed ledger", "web3", "metaverse",
+        ],
+        "phrases": [
+            "cryptocurrency law", "digital assets", "crypto regulation",
+            "blockchain technology", "token offering", "security token",
+            "utility token", "nft law", "defi protocol", "dao governance",
+            "crypto exchange", "virtual currency", "digital currency",
+            "central bank digital currency", "crypto compliance",
+            "securities token", "initial coin offering", "ico",
+            "crypto tax", "blockchain smart contract",
+        ],
+    },
+    {
+        "name": "International Trade & Investment",
+        "keywords": [
+            "trade", "investment", "tariff", "import", "export", "customs",
+            "sanctions", "wto", "fta", "usmca", "nafta", "ceta",
+            "foreign investment", "ipa", "ics", "dumping", "countervail",
+        ],
+        "phrases": [
+            "international trade", "trade law", "trade remedy",
+            "anti-dumping", "countervailing duty", "safeguard measure",
+            "investment arbitration", "investor-state", "investment treaty",
+            "foreign investment review", "investment canada act",
+            "export control", "trade sanctions", "economic sanctions",
+            "usmca", "ceta", "cptpp", "customs law", "rules of origin",
+            "free trade agreement", "trade dispute",
+        ],
+    },
+    {
+        "name": "General",
+        "keywords": [
+            "law firm", "lawyer", "legal", "counsel", "attorney",
+            "practice", "firm", "partner", "associate",
+        ],
+        "phrases": [
+            "law firm", "legal services", "legal team", "legal practice",
+            "legal counsel", "general counsel", "in-house counsel",
+        ],
+    },
 ]
 
 # Build fast lookup maps
