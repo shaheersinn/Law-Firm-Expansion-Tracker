@@ -27,7 +27,7 @@ class LearningLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "tracker.db")
             db = Database(db_path)
-            now = datetime.now(timezone.utc)
+            base_time = datetime.now(timezone.utc)
 
             for idx in range(3):
                 db.save_signal({
@@ -40,7 +40,7 @@ class LearningLoopTests(unittest.TestCase):
                     "department": "Data Privacy",
                     "department_score": 1.8,
                     "matched_keywords": ["privacy", "cybersecurity"],
-                    "seen_at": (now - timedelta(hours=idx)).isoformat(),
+                    "seen_at": (base_time - timedelta(hours=idx)).isoformat(),
                 })
 
             report = run_evolution(force=True, db_path=db_path)

@@ -29,7 +29,7 @@ class DepartmentClassifier:
                 for kw in cfg["keywords"]
             ]
             self._ph_patterns[dept] = [
-                re.compile(re.escape(ph.lower()))
+                re.compile(r"\b" + re.escape(ph.lower()) + r"\b")
                 for ph in cfg["phrases"]
             ]
 
@@ -57,7 +57,7 @@ class DepartmentClassifier:
                 hits = pat.findall(lower)
                 if not hits:
                     continue
-                term = hits[0]
+                term = str(hits[0]).lower()
                 if term in seen_terms:
                     continue
                 seen_terms.add(term)
@@ -70,7 +70,7 @@ class DepartmentClassifier:
                 hits = pat.findall(lower)
                 if not hits:
                     continue
-                term = hits[0]
+                term = str(hits[0]).lower()
                 if term in seen_terms:
                     continue
                 seen_terms.add(term)

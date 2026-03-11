@@ -25,6 +25,7 @@ logger = logging.getLogger("database")
 # Bump this when you add/change any column — also update tracker.yml cache key
 SCHEMA_VERSION = 5
 LOOKBACK_DAYS  = int(os.getenv("SIGNAL_LOOKBACK_DAYS", "21"))
+DEDUP_TITLE_LENGTH = 80
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -224,7 +225,7 @@ class Database:
         seen_at    = signal.get("seen_at") or signal.get("scraped_at") \
             or datetime.now(timezone.utc).isoformat()
         dedup_key  = signal.get("dedup_key") or hashlib.md5(
-            f"{signal['firm_id']}|{signal['signal_type']}|{signal.get('url', '')}|{signal['title'][:80]}".encode()
+            f"{signal['firm_id']}|{signal['signal_type']}|{signal.get('url', '')}|{signal['title'][:DEDUP_TITLE_LENGTH]}".encode()
         ).hexdigest()
         try:
             self.conn.execute(

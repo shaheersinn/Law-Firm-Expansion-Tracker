@@ -231,7 +231,7 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
                 learning_report.get("keywords_updated", 0),
             )
     except Exception as exc:
-        logger.warning(f"Self-training step failed: {exc}")
+        logger.warning("Self-training step failed: %s", exc, exc_info=True)
     db.close()
     logger.info("\nDone.\n")
 

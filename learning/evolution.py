@@ -17,6 +17,7 @@ logger = logging.getLogger("learning.evolution")
 
 DB_PATH = os.getenv("DB_PATH", "law_firm_tracker.db")
 WEIGHTS_PATH = "learned_weights.json"
+NEUTRAL_HIT_RATE_PRIOR = 0.5
 
 
 def run_evolution(
@@ -119,8 +120,11 @@ def run_evolution(
         high_count = sum(v for v in type_dept_counts.get(sig_type, {}).values())
         stats = feedback_by_type.get(sig_type, {"confirmed": 0, "false_positive": 0})
         feedback_total = stats["confirmed"] + stats["false_positive"]
-        hit_rate = (stats["confirmed"] / feedback_total) if feedback_total else 0.5
-        reliability_delta = (hit_rate - 0.5) * 0.8 * alpha
+        # No feedback yet = neutral prior, so the base weight stays centered.
+        hit_rate = (
+            stats["confirmed"] / feedback_total
+        ) if feedback_total else NEUTRAL_HIT_RATE_PRIOR
+        reliability_delta = (hit_rate - NEUTRAL_HIT_RATE_PRIOR) * 0.8 * alpha
         volume_nudge = min(0.25 * alpha, math.log1p(high_count) * 0.03 * alpha)
         learned_weight = base_w * (1 + reliability_delta) + volume_nudge
         learned[sig_type] = round(max(0.0, learned_weight), 3)
