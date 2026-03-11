@@ -12,9 +12,7 @@ How "feedback" is inferred automatically (no human needed):
      60 days it's treated as a false positive.
 """
 
-import json
 import logging
-import sqlite3
 from datetime import datetime, timezone, timedelta
 
 def _parse_dt(s):

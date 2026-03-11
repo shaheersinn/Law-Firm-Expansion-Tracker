@@ -31,7 +31,6 @@ import io
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 DB_PATH = "law_firm_tracker.db"
 

@@ -15,10 +15,7 @@ Tracked error categories:
 """
 
 import re
-import json
 import logging
-import sqlite3
-from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("learning.self_healer")

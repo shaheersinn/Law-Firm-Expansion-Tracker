@@ -25,7 +25,6 @@ These feed into the Notifier to add context to Telegram alerts.
 
 import logging
 from datetime import datetime, timezone, timedelta
-from collections import defaultdict
 
 logger = logging.getLogger("learning.confidence")
 

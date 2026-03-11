@@ -66,7 +66,7 @@ class PublicationsScraper(BaseScraper):
         # ── Lexology RSS ───────────────────────────────────────────────
         try:
             import feedparser
-            lex_url = f"https://www.lexology.com/rss/feed/canada.xml"
+            lex_url = "https://www.lexology.com/rss/feed/canada.xml"
             try:
                 feed = feedparser.parse(lex_url)
                 firm_names = [firm["short"], firm["name"].split()[0]] + firm.get("alt_names", [])

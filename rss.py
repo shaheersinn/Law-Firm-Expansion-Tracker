@@ -27,7 +27,6 @@ Changelog:
 
 import os
 import re
-import time
 import logging
 from datetime import datetime, timezone, timedelta
 

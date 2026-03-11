@@ -25,7 +25,7 @@ Recruit-season queries via Google News (August-November peak):
 """
 
 import re
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus
 
 from scrapers.base import BaseScraper
 from classifier.department import DepartmentClassifier

@@ -1,5 +1,5 @@
 """30-cycle local test harness — fully offline, mocked HTTP."""
-import sys, os, io, json, logging, time, traceback, importlib
+import sys, os, io, json, logging, time, traceback
 os.environ.update({
     "SIGNAL_LOOKBACK_DAYS": "21",
     "SCRAPER_MIN_DELAY": "0",

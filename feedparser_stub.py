@@ -5,9 +5,6 @@ Handles Atom, RSS 2.0, RSS 1.0.
 """
 import xml.etree.ElementTree as ET
 from urllib import request as _req
-from urllib.error import URLError
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 
 _NS = {
     "atom":    "http://www.w3.org/2005/Atom",

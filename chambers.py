@@ -230,7 +230,7 @@ class ChambersScraper(BaseScraper):
     def _scrape_canadian_lawyer_rankings(self, firm: dict) -> list[dict]:
         signals = []
         # Canadian Lawyer Top 10 regional lists
-        url = f"https://www.canadianlawyermag.com/rankings/top-10-regional-firms/"
+        url = "https://www.canadianlawyermag.com/rankings/top-10-regional-firms/"
 
         response = self._get(url)
         if not response:
