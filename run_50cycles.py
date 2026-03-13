@@ -133,7 +133,7 @@ def make_signals(cycle: int, n: int = None) -> list[dict]:
         body = hashlib.md5(f"{url}-cycle{cycle}-{i%7}".encode()).hexdigest() \
                if stype == "website_snapshot" else title[:200]
 
-        # Vary seen_at slightly within last 3 days
+        # Vary scraped_at/seen_at slightly within last 3 days
         delta = timedelta(hours=random.randint(0, 72))
         seen_at = (now - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -146,6 +146,7 @@ def make_signals(cycle: int, n: int = None) -> list[dict]:
             "body":            body,
             "department":      dept,
             "department_score":dept_score,
+            "scraped_at":      seen_at,
             "seen_at":         seen_at,
         })
 
@@ -161,12 +162,12 @@ def insert_signals(db: Database, signals: list[dict]) -> list[dict]:
             db.conn.execute("""
                 INSERT OR IGNORE INTO signals
                   (firm_id, firm_name, signal_type, title, url, body,
-                   department, department_score, seen_at, dedup_key)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                   department, department_score, scraped_at, seen_at, dedup_key)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """, (s["firm_id"], s["firm_name"], s["signal_type"],
                   s["title"], s["url"], s["body"],
                   s["department"], s["department_score"],
-                  s["seen_at"], key))
+                  s["scraped_at"], s["seen_at"], key))
             if db.conn.execute("SELECT changes()").fetchone()[0]:
                 new.append(s)
         except Exception:
@@ -263,7 +264,10 @@ def run_50_cycles():
             # ── 2. analyze ────────────────────────────────────────────────
             analyzer = ExpansionAnalyzer(db)
             expansion_alerts = analyzer.analyze(new_signals)
-            website_changes  = analyzer.detect_website_changes(new_signals)
+            # Pass ALL raw signals so website snapshot change detection works:
+            # detect_website_changes compares current vs stored hash and updates
+            # the stored hash, so repeat visits on later cycles detect changes.
+            website_changes  = analyzer.detect_website_changes(raw_signals)
             total_alerts_generated += len(expansion_alerts)
             total_website_changes  += len(website_changes)
 
