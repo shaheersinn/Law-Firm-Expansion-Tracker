@@ -118,6 +118,7 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
 
     scrapers = [cls() for cls in SCRAPER_CLASSES]
     all_new_signals: list[dict] = []
+    all_website_snapshots: list[dict] = []  # ALL snapshots this run (for change detection)
 
     # Health tracking: scraper_name → total signals found across all firms
     scraper_totals: dict[str, int] = {s.name: 0 for s in scrapers}
@@ -139,8 +140,10 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
                         db.save_signal(signal)
                         all_new_signals.append(signal)
                         new_count += 1
-                        if signal["signal_type"] == "website_snapshot":
-                            db.save_website_hash(firm["id"], signal["url"], signal.get("body", ""))
+                    # Collect ALL website snapshots for change detection
+                    # (detect_website_changes handles hash update internally)
+                    if signal["signal_type"] == "website_snapshot":
+                        all_website_snapshots.append(signal)
 
                 scraper_totals[scraper.name] = scraper_totals.get(scraper.name, 0) + len(fetched)
                 logger.info(f"  {scraper.name:<38} {len(fetched)} signals  ({new_count} new)")
@@ -200,7 +203,7 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
 
     weekly_signals  = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    website_changes  = analyzer.detect_website_changes(all_new_signals)
+    website_changes  = analyzer.detect_website_changes(all_website_snapshots)
 
     for alert in expansion_alerts:
         db.save_weekly_score(
@@ -218,7 +221,9 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
     #  NOTIFICATION + DASHBOARD
     # ------------------------------------------------------------------ #
 
-    _send_digest(db, analyzer, notifier, dashboard, new_signals=all_new_signals)
+    _send_digest(db, analyzer, notifier, dashboard,
+                 new_signals=all_new_signals,
+                 website_changes=website_changes)
     db.close()
     logger.info("\nDone.\n")
 
@@ -229,19 +234,19 @@ def _send_digest(
     notifier: Notifier,
     dashboard: DashboardGenerator,
     new_signals: list | None = None,
+    website_changes: list | None = None,
 ):
     weekly_signals   = db.get_signals_this_week()
     expansion_alerts = analyzer.analyze(weekly_signals)
-    # BUG FIX: was passing [] instead of the actual new_signals list,
-    # so website change alerts were never generated during normal runs.
-    website_changes  = analyzer.detect_website_changes(new_signals or [])
+    # Use pre-computed website_changes when provided; otherwise no snapshots to check.
+    resolved_changes = website_changes if website_changes is not None else []
 
     new_alerts = [
         a for a in expansion_alerts
         if not db.was_alert_sent(a["firm_id"], a["department"])
     ]
 
-    notifier.send_combined_digest(new_alerts, website_changes, new_signals=new_signals or [])
+    notifier.send_combined_digest(new_alerts, resolved_changes, new_signals=new_signals or [])
     for a in new_alerts:
         db.mark_alert_sent(a["firm_id"], a["department"], a["expansion_score"])
 
@@ -250,7 +255,7 @@ def _send_digest(
     logger.info(
         f"Digest: {len(new_alerts)} new alerts  |  "
         f"Weekly signals in DB: {len(weekly_signals)}  |  "
-        f"Website changes: {len(website_changes)}"
+        f"Website changes: {len(resolved_changes)}"
     )
 
 

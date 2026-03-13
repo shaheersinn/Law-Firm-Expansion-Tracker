@@ -122,9 +122,12 @@ def _clean_title(title: str) -> str:
     # Strip [Source Tag] prefix (e.g. [Firm News], [Practice Page], [NRF Insights])
     title = re.sub(r"^\[.*?\]\s*", "", title).strip()
 
-    # Insert space between lowercase→uppercase run-on word boundaries
+    # Insert space before uppercase that follows 3+ lowercase chars (run-on words).
     # e.g. "PublicationThe" → "Publication The",  "actionsCanada" → "actions Canada"
-    title = re.sub(r"([a-z])([A-Z])", r"\1 \2", title)
+    # Requires 3 preceding lowercase chars so proper-name prefixes like "Mc" in
+    # "McCarthy" (only 2 lowercase before "C") are not incorrectly split.
+    # This is a pragmatic heuristic suitable for law-firm title text.
+    title = re.sub(r"(?<=[a-z]{3})([A-Z])", r" \1", title)
 
     # Strip known leading source-type word(s) that still prefix the real title
     title = _SOURCE_PREFIXES.sub("", title).strip()
@@ -277,7 +280,7 @@ class Notifier:
             )
             for dept in sorted(momentum_depts):
                 firms_in_dept = [
-                    a["firm_name"].split()[0]
+                    a["firm_name"].split()[0].rstrip(",;.")
                     for a in alerts
                     if a["department"] == dept
                 ]
@@ -358,131 +361,15 @@ class Notifier:
             logger.warning("Telegram not configured — skipping notification")
             return
 
-        from datetime import datetime, timezone
-        from collections import Counter
-
-        today       = datetime.now(timezone.utc).strftime("%B %d, %Y")
-        new_signals = new_signals or []
-        run_trends  = run_trends  or []
-
-        type_counts = Counter(s.get("signal_type", "other") for s in new_signals)
-
-        # ── Header ──────────────────────────────────────────────────────
-        header_lines = [
-            "📊 *Law Firm Expansion Tracker*",
-            f"_{today}_",
-        ]
-        if self.dash_url:
-            header_lines.append(f"🖥 [Open Live Dashboard]({self.dash_url})")
-        header_lines.append("─" * 34)
-
-        # ── Summary row ─────────────────────────────────────────────────
-        avg_new = (
-            sum(r.get("new_signals", 0) for r in run_trends) / len(run_trends)
-            if run_trends else 0
+        msg = self._build_message(
+            alerts,
+            website_changes,
+            new_signals=new_signals,
+            run_trends=run_trends,
+            duration_secs=duration_secs,
+            error_count=error_count,
         )
-        delta_str = ""
-        if avg_new > 0:
-            delta_pct = int(((len(new_signals) - avg_new) / avg_new) * 100)
-            delta_str = f" ({'+' if delta_pct >= 0 else ''}{delta_pct}% vs 7-run avg)"
-
-        summary_lines = [
-            f"*{len(new_signals)}* new signal(s){delta_str} · "
-            f"*{len(alerts)}* alert(s)",
-        ]
-        if type_counts:
-            top = ", ".join(
-                f"{TYPE_EMOJI.get(t, '•')} {c} {t.replace('_', ' ')}"
-                for t, c in type_counts.most_common(4)
-            )
-            summary_lines.append(f"_{top}_")
-        if error_count:
-            summary_lines.append(f"⚠️ _{error_count} scraper error(s) this run_")
-
-        # ── Sector momentum block ────────────────────────────────────────
-        momentum_depts = {
-            a["department"] for a in alerts if a.get("sector_momentum")
-        }
-        momentum_lines = []
-        if momentum_depts:
-            momentum_lines.append(
-                f"\n🌊 *Sector Momentum* — {len(momentum_depts)} department(s) "
-                "trending across 3+ firms:"
-            )
-            for dept in sorted(momentum_depts):
-                firms_in_dept = [
-                    a["firm_name"].split()[0]
-                    for a in alerts
-                    if a["department"] == dept
-                ]
-                momentum_lines.append(
-                    f"  {DEPT_EMOJI.get(dept, '📌')} *{dept}* "
-                    f"— {', '.join(firms_in_dept[:5])}"
-                )
-
-        # ── No activity case ─────────────────────────────────────────────
-        if not alerts and not website_changes:
-            msg = "\n".join(
-                header_lines + summary_lines + ["", "_No new expansion spikes this run._"]
-                + self._footer_lines(duration_secs)
-            )
-            self._send(msg)
-            return
-
-        # ── Alert blocks (each built as a chunk to avoid mid-split) ─────
-        alert_blocks = []
-        if alerts:
-            alert_blocks.append(f"\n*🔔 {len(alerts)} Expansion Alert(s)*\n")
-            for i, alert in enumerate(alerts[:15], 1):
-                dept_e  = DEPT_EMOJI.get(alert["department"], "📌")
-                arrow   = alert.get("velocity_arrow", "→")
-                z       = alert.get("z_score", 0)
-                fire    = " 🔥" if z >= 2.0 else ""
-                sector  = " 🌊" if alert.get("sector_momentum") else ""
-                z_label = f" ↑{z}σ" if z else ""
-                new_lbl = " 🆕" if alert.get("is_new_baseline") else ""
-
-                block = [
-                    f"{i}. 🏛 *{alert['firm_name']}*{fire}{sector}",
-                    f"   {dept_e} {alert['department']} {arrow}{new_lbl}",
-                    f"   Score: *{alert['expansion_score']}*{z_label}  "
-                    f"Signals: {alert['signal_count']}",
-                ]
-
-                # Top 2 signal bullets with confidence indicator
-                for sig in alert.get("top_signals", [])[:2]:
-                    te     = TYPE_EMOJI.get(sig.get("signal_type", ""), "•")
-                    conf   = sig.get("confidence", 0)
-                    conf_d = "●" if conf >= 0.7 else ("◑" if conf >= 0.4 else "○")
-                    title  = (
-                        sig.get("title", "")[:85]
-                        .replace("*", "").replace("[", "").replace("]", "")
-                    )
-                    url = sig.get("url", "")
-                    if url:
-                        block.append(f"   {te}{conf_d} [{title}]({url})")
-                    else:
-                        block.append(f"   {te}{conf_d} {title}")
-
-                alert_blocks.append("\n".join(block))
-
-        # ── Website changes ──────────────────────────────────────────────
-        change_lines = []
-        if website_changes:
-            change_lines.append(f"\n*🔄 {len(website_changes)} Website Change(s)*")
-            for chg in website_changes[:5]:
-                change_lines.append(
-                    f"  • *{chg['firm_name']}* — [{chg['title']}]({chg['url']})"
-                )
-
-        # ── Footer ───────────────────────────────────────────────────────
-        footer = self._footer_lines(duration_secs)
-
-        # ── Assemble and send ────────────────────────────────────────────
-        preamble = "\n".join(header_lines + summary_lines + momentum_lines)
-        tail     = "\n".join(change_lines + footer)
-
-        self._send_in_chunks(preamble, alert_blocks, tail)
+        self._send(msg)
 
     # ------------------------------------------------------------------ #
     #  Internal helpers

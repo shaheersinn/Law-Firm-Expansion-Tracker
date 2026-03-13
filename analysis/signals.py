@@ -144,21 +144,31 @@ class ExpansionAnalyzer:
     #  Website changes
     # ------------------------------------------------------------------ #
 
-    def detect_website_changes(self, new_signals: list[dict]) -> list[dict]:
-        """Compares website snapshot hashes against stored hashes."""
+    def detect_website_changes(self, snapshots: list[dict]) -> list[dict]:
+        """
+        Compares website snapshot hashes against stored hashes and updates
+        the stored hash to the current value so the next run detects the
+        *next* change rather than the same one repeatedly.
+
+        Call this with ALL website_snapshot signals from the current run
+        (not just newly-inserted ones) so that repeat visits can be compared
+        against the hash stored on the previous run.
+        """
         changes = []
-        for s in new_signals:
+        for s in snapshots:
             if s.get("signal_type") != "website_snapshot":
                 continue
             prev = self.db.get_website_hash(s["firm_id"], s["url"])
             curr = hashlib.sha256(s.get("body", "").encode()).hexdigest()
-            if prev and prev != curr:
+            if prev is not None and prev != curr:
                 changes.append({
                     "firm_id":   s["firm_id"],
                     "firm_name": s["firm_name"],
                     "url":       s["url"],
                     "title":     s["title"],
                 })
+            # Always refresh the stored hash so the next run detects future changes
+            self.db.save_website_hash(s["firm_id"], s["url"], s.get("body", ""))
         return changes
 
     # ------------------------------------------------------------------ #
