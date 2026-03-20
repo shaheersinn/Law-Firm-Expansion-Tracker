@@ -18,6 +18,7 @@ New keywords table columns:
   prev_mult    REAL  — last cycle's multiplier (for momentum calc)
 """
 
+import json
 import re
 import logging
 import math
@@ -51,6 +52,25 @@ def _ngrams(text: str, n: int) -> list[str]:
 def _confidence(samples: int) -> float:
     """Sigmoid-like confidence: 0 at 0 samples, ~1.0 at 50+ samples."""
     return round(1 - math.exp(-samples / 15), 3)
+
+
+def _iter_keywords(raw_keywords) -> list[str]:
+    if not raw_keywords:
+        return []
+    if isinstance(raw_keywords, list):
+        return [str(kw).strip().lower() for kw in raw_keywords if str(kw).strip()]
+    if isinstance(raw_keywords, str):
+        stripped = raw_keywords.strip()
+        if not stripped:
+            return []
+        try:
+            decoded = json.loads(stripped)
+            if isinstance(decoded, list):
+                return [str(kw).strip().lower() for kw in decoded if str(kw).strip()]
+        except Exception:
+            pass
+        return [kw.strip().lower() for kw in stripped.split(",") if kw.strip()]
+    return []
 
 
 class KeywordLearnerV2:
@@ -276,8 +296,7 @@ class KeywordLearnerV2:
         result: dict = defaultdict(lambda: [0.0, 0.0])
         for dept, kws_str, outcome, rw in cur.fetchall():
             w = float(rw or 1.0)
-            for kw in kws_str.split(","):
-                kw = kw.strip().lower()
+            for kw in _iter_keywords(kws_str):
                 if not kw or not dept:
                     continue
                 key = (dept, kw)

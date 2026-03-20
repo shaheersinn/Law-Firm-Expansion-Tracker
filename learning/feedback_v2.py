@@ -15,6 +15,7 @@ are used (15 days for confirmation, 14 days for silence) to build up
 signal faster.
 """
 
+import json
 import logging
 import sqlite3
 from collections import defaultdict
@@ -62,6 +63,25 @@ def _recency_weight(seen_at_str: str) -> float:
     return 1.0
 
 
+def _iter_keywords(raw_keywords) -> list[str]:
+    if not raw_keywords:
+        return []
+    if isinstance(raw_keywords, list):
+        return [str(kw).strip() for kw in raw_keywords if str(kw).strip()]
+    if isinstance(raw_keywords, str):
+        stripped = raw_keywords.strip()
+        if not stripped:
+            return []
+        try:
+            decoded = json.loads(stripped)
+            if isinstance(decoded, list):
+                return [str(kw).strip() for kw in decoded if str(kw).strip()]
+        except Exception:
+            pass
+        return [kw.strip() for kw in stripped.split(",") if kw.strip()]
+    return []
+
+
 class FeedbackEngine:
     def __init__(self, db, schedule: LearningSchedule = None):
         self._db       = db
@@ -92,6 +112,13 @@ class FeedbackEngine:
                 UNIQUE(department, keyword)
             );
         """)
+        cols = {
+            row[1] for row in self._db.conn.execute("PRAGMA table_info(signal_feedback)").fetchall()
+        }
+        if "recency_weight" not in cols:
+            self._db.conn.execute(
+                "ALTER TABLE signal_feedback ADD COLUMN recency_weight REAL DEFAULT 1.0"
+            )
         self._db.conn.commit()
 
     # ================================================================== #
@@ -245,7 +272,7 @@ class FeedbackEngine:
     # ================================================================== #
 
     def _update_cooccurrence(self, sig: dict, outcome: str):
-        kws = (sig.get("matched_keywords") or "").split(",")
+        kws = _iter_keywords(sig.get("matched_keywords"))
         dept = sig.get("department", "")
         if not dept:
             return
@@ -285,7 +312,8 @@ class FeedbackEngine:
 
     def _load_all_signals(self) -> list[dict]:
         cur = self._db.conn.execute("""
-            SELECT id, firm_id, department, signal_type, matched_keywords, seen_at
+            SELECT id, firm_id, department, signal_type, matched_keywords,
+                   COALESCE(NULLIF(seen_at, ''), scraped_at) AS seen_at
             FROM signals
             WHERE department IS NOT NULL AND department != ''
             ORDER BY seen_at

@@ -8,6 +8,7 @@ Run with: python main.py --evolve
 
 import json
 import logging
+import math
 import os
 import sqlite3
 from collections import defaultdict
@@ -16,6 +17,7 @@ logger = logging.getLogger("learning.evolution")
 
 DB_PATH = os.getenv("DB_PATH", "law_firm_tracker.db")
 WEIGHTS_PATH = "learned_weights.json"
+NEUTRAL_HIT_RATE_PRIOR = 0.5
 
 
 def run_evolution(
@@ -78,15 +80,54 @@ def run_evolution(
         ).fetchall()
     }
 
+    # ── Infer feedback + train keyword weights every evolution run ────────────
+    from learning.feedback_v2 import FeedbackEngine
+    from learning.keyword_learner_v2 import KeywordLearnerV2
+
+    feedback_engine = FeedbackEngine(db_obj, schedule=schedule)
+    confirmed, false_pos = feedback_engine.infer_feedback_from_db()
+    cooccurrence = feedback_engine.get_cooccurrence()
+
+    learner = KeywordLearnerV2(db_obj, schedule=schedule)
+    keywords_updated = learner.update_weights(cooccurrence=cooccurrence)
+    keyword_candidates = learner.discover_new_keywords()
+    keywords_penalised = learner.penalise_cross_dept_noise()
+
+    feedback_by_type = defaultdict(lambda: {"confirmed": 0, "false_positive": 0})
+    for row in conn.execute(
+        """
+        SELECT COALESCE(s.signal_type, sf.signal_type) AS signal_type,
+               SUM(CASE WHEN sf.outcome='confirmed' THEN 1 ELSE 0 END) AS confirmed,
+               SUM(CASE WHEN sf.outcome='false_positive' THEN 1 ELSE 0 END) AS false_positive
+        FROM signal_feedback sf
+        LEFT JOIN signals s ON s.id = sf.signal_id
+        GROUP BY COALESCE(s.signal_type, sf.signal_type)
+        """
+    ).fetchall():
+        sig_type = row["signal_type"]
+        if not sig_type:
+            continue
+        feedback_by_type[sig_type] = {
+            "confirmed": row["confirmed"] or 0,
+            "false_positive": row["false_positive"] or 0,
+        }
+
     # ── Compute EMA-adjusted weights ─────────────────────────────────────────
     from analysis.signals import SIGNAL_WEIGHTS
 
     learned: dict[str, float] = {}
     for sig_type, base_w in SIGNAL_WEIGHTS.items():
         high_count = sum(v for v in type_dept_counts.get(sig_type, {}).values())
-        # EMA nudge: scale by alpha so bootstrap phase moves faster
-        nudge = min(0.3 * alpha, high_count * 0.005 * alpha)
-        learned[sig_type] = round(base_w + nudge, 3)
+        stats = feedback_by_type.get(sig_type, {"confirmed": 0, "false_positive": 0})
+        feedback_total = stats["confirmed"] + stats["false_positive"]
+        # No feedback yet = neutral prior, so the base weight stays centered.
+        hit_rate = (
+            stats["confirmed"] / feedback_total
+        ) if feedback_total else NEUTRAL_HIT_RATE_PRIOR
+        reliability_delta = (hit_rate - NEUTRAL_HIT_RATE_PRIOR) * 0.8 * alpha
+        volume_nudge = min(0.25 * alpha, math.log1p(high_count) * 0.03 * alpha)
+        learned_weight = base_w * (1 + reliability_delta) + volume_nudge
+        learned[sig_type] = round(max(0.0, learned_weight), 3)
 
     with open(WEIGHTS_PATH, "w") as f:
         json.dump(learned, f, indent=2)
@@ -94,16 +135,11 @@ def run_evolution(
     logger.info(f"Evolution complete — weights saved to {WEIGHTS_PATH}")
     logger.info(json.dumps(learned, indent=2))
 
-    # ── Update keyword learner ────────────────────────────────────────────────
-    keywords_updated = 0
-    try:
-        from learning.keyword_learner import update_keywords
-        keywords_updated = update_keywords(conn, alpha=alpha)
-    except Exception as exc:
-        logger.debug(f"keyword_learner optional step: {exc}")
-
     # Record this run in the schedule
-    schedule.record_run(confirmed=len(high_score_firms), false_pos=0)
+    schedule.record_run(
+        confirmed=confirmed + len(high_score_firms),
+        false_pos=false_pos,
+    )
     db_obj.close()
     conn.close()
 
@@ -113,6 +149,12 @@ def run_evolution(
             "alpha":      alpha,
             "forced":     force,
         },
+        "feedback_summary": {
+            "confirmed": confirmed,
+            "false_positive": false_pos,
+        },
         "keywords_updated":   keywords_updated,
+        "keyword_candidates": keyword_candidates,
+        "keywords_penalised": keywords_penalised,
         "signal_type_weights": learned,
     }

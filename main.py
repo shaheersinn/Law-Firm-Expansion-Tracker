@@ -219,6 +219,19 @@ def run(firms_to_run: list | None = None, digest_only: bool = False):
     # ------------------------------------------------------------------ #
 
     _send_digest(db, analyzer, notifier, dashboard, new_signals=all_new_signals)
+    try:
+        from learning.evolution import run_evolution
+        learning_report = run_evolution(force=True, db_path=config.DB_PATH)
+        if learning_report:
+            feedback = learning_report.get("feedback_summary", {})
+            logger.info(
+                "Self-training complete: confirmed=%s false_positive=%s keywords_updated=%s",
+                feedback.get("confirmed", 0),
+                feedback.get("false_positive", 0),
+                learning_report.get("keywords_updated", 0),
+            )
+    except Exception as exc:
+        logger.warning("Self-training step failed: %s", exc, exc_info=True)
     db.close()
     logger.info("\nDone.\n")
 

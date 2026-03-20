@@ -42,6 +42,7 @@ SIGNAL_WEIGHTS: dict[str, float] = {
 
 SPIKE_Z_THRESHOLD    = 1.5    # z-score above mean to flag as spike
 SPIKE_MIN_SCORE      = 3.5    # minimum raw score to flag with no baseline
+EXPANSION_THRESHOLD  = SPIKE_MIN_SCORE
 SECTOR_MIN_FIRMS     = 3      # number of distinct firms needed for sector momentum
 DECAY_HALF_LIFE_DAYS = 10.0   # signals lose 50% weight every 10 days
 
