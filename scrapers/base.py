@@ -80,11 +80,13 @@ class BaseScraper(ABC):
     #  HTTP helpers
     # ------------------------------------------------------------------ #
 
-    def _get(self, url: str, timeout: int = 20, params: dict | None = None):
+    def _get(self, url: str, timeout: int = 20, params: dict | None = None,
+             extra_headers: dict | None = None):
         """GET with rate-limit delay. Returns Response or None."""
         self._delay()
         try:
-            resp = self.session.get(url, timeout=timeout, params=params)
+            resp = self.session.get(url, timeout=timeout, params=params,
+                                    headers=extra_headers or None)
             resp.raise_for_status()
             return resp
         except Exception as e:
