@@ -1,0 +1,82 @@
+name: Validate Expansion Records
+
+on:
+  pull_request:
+    branches: ["main", "copilot/*"]
+    paths:
+      - "data/firms/**"
+      - "data/schema/**"
+      - "data/taxonomy/**"
+      - "scripts/validate.py"
+      - "scripts/normalize.py"
+      - "scripts/deduplicate.py"
+  push:
+    branches: ["main"]
+    paths:
+      - "data/firms/**"
+      - "data/schema/**"
+      - "data/taxonomy/**"
+      - "scripts/validate.py"
+      - "scripts/normalize.py"
+      - "scripts/deduplicate.py"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate-records:
+    name: Validate & Deduplicate Records
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: Linux-pip-validate-${{ hashFiles('requirements.txt') }}
+          restore-keys: Linux-pip-validate-
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml jsonschema
+
+      - name: Validate expansion records
+        run: |
+          python scripts/validate.py data/firms/
+        # Exits 1 if any record has errors — blocks merge
+
+      - name: Check for duplicate records
+        run: |
+          python scripts/deduplicate.py data/firms/ || echo "::warning::Duplicate candidates found — review before merging"
+        # Warning only — does not block merge (duplicates need human review)
+
+  run-tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: Linux-pip-tests-${{ hashFiles('requirements.txt') }}
+          restore-keys: Linux-pip-tests-
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml jsonschema pytest
+
+      - name: Run validator and normalizer tests
+        run: |
+          python -m pytest tests/test_validate.py tests/test_normalize.py tests/test_deduplicate.py -v

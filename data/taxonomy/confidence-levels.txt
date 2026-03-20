@@ -1,0 +1,11 @@
+# Confidence levels — ordered from strongest to weakest evidence
+# confirmed: official firm announcement or primary authoritative disclosure
+# high:      strong third-party reporting from reputable legal industry sources
+# medium:    credible signal with corroboration but not fully primary
+# low:       weak or indirect evidence, including job postings without confirmation
+# unverified: insufficient confidence; manual review required
+confirmed
+high
+medium
+low
+unverified

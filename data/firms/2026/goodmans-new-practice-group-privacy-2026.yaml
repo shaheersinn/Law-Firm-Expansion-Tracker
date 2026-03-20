@@ -1,0 +1,20 @@
+record_id: goodmans-new-practice-group-privacy-2026
+firm_name: "Goodmans LLP"
+expansion_type: new_practice_group
+practice_areas:
+  - Data Privacy & Protection
+  - Technology & Cybersecurity
+country: CA
+region: Ontario
+city: Toronto
+announced_date: "2026-02-03"
+source_url: "https://www.goodmans.ca/news/goodmans-launches-data-privacy-practice-2026"
+source_type: firm_press_release
+confidence: confirmed
+status: published
+headcount: 6
+notes: "Goodmans launched a standalone Data Privacy & Protection practice group, expanding from within its Technology group. Six lawyers transferred internally plus two lateral hires."
+created_at: "2026-02-03T11:00:00Z"
+last_modified: "2026-02-10T16:00:00Z"
+schema_version: "1.0.0"
+created_by: "shaheersinn"

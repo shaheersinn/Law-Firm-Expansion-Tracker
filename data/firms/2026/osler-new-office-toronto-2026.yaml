@@ -1,0 +1,24 @@
+record_id: osler-new-office-toronto-2026
+firm_name: "Osler, Hoskin & Harcourt LLP"
+expansion_type: new_office
+practice_areas:
+  - Corporate & M&A
+  - Capital Markets
+country: CA
+region: Ontario
+city: Toronto
+announced_date: "2026-01-15"
+effective_date: "2026-03-01"
+source_url: "https://www.osler.com/en/about-us/news/2026/osler-expands-toronto-office"
+source_type: firm_press_release
+confidence: confirmed
+status: published
+headcount: 25
+tags:
+  - toronto
+  - canadian-market
+notes: "Osler announced expansion of its Toronto office to accommodate 25 new hires in the Corporate and Capital Markets groups."
+created_at: "2026-01-15T09:00:00Z"
+last_modified: "2026-01-20T14:30:00Z"
+schema_version: "1.0.0"
+created_by: "shaheersinn"

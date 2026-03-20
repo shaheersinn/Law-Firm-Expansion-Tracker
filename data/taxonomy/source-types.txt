@@ -1,0 +1,8 @@
+firm_press_release
+legal_directory
+legal_news
+court_filing
+job_posting
+industry_report
+social_media
+other
