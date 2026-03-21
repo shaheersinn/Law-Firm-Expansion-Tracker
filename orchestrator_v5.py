@@ -140,7 +140,10 @@ def run_full_pipeline_v5(mode: str = "daily"):
     except Exception as e:
         log.error("  ERR CanLII ABPC: %s", e)
 
-    # ── Phase 3: Dispatch alerts ──────────────────────────────────────────────
+    # ── Phase 3: Signal verification (double-check accuracy) ─────────────────
+    _phase("Signal accuracy verification", _run_verifier)
+
+    # ── Phase 4: Dispatch alerts ──────────────────────────────────────────────
     _phase("Alerts dispatch", _dispatch_alerts)
 
     # ── Phase 4: v3 per-firm scraper loop (54 scrapers x 35 firms) ───────────
@@ -170,6 +173,10 @@ def run_full_pipeline_v5(mode: str = "daily"):
 
 
 # ── Phase helpers ─────────────────────────────────────────────────────────────
+
+def _run_verifier():
+    from database.signal_verifier import verify_recent_signals
+    verify_recent_signals(days=1)
 
 def _dispatch_alerts():
     from alerts.notifier import AlertDispatcher
