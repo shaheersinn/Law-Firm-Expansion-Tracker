@@ -1,204 +1,236 @@
-# 🏛 Canadian Law Firm Expansion Tracker
+# 🏛 Enhanced Calgary Law Firm Hiring Tracker v2.0
 
-Tracks 26 Canadian law firms across **15 scrapers** and **17 practice departments** — surfacing lateral hires, court records, rankings, regulatory filings, and bar leadership changes before they become public knowledge.
+> **From "Are you hiring?" to "I saw your SEDAR+ filing for TransAlta — I'm a securities lawyer available Monday."**
 
-Runs automatically on GitHub Actions. Sends instant Telegram alerts on Tier 1 signals, and a ranked weekly digest every Sunday.
+A five-strategy, real-time intelligence system that surfaces hiring
+opportunities at Calgary law firms *before they're posted*.
+
+---
+
+## Five Intelligence Strategies
+
+| # | Strategy | Trigger | Weight | Urgency |
+|---|----------|---------|--------|---------|
+| 1 | **Follow the Work** | CanLII ABQB appearance spike (z ≥ 1.5) | 4.0 | This week |
+| 2 | **Follow the Money** | SEDAR+ major deal, firm named as counsel | 4.5–5.0 | **Same day** |
+| 3 | **Empty Chair** | LinkedIn associate changes employer | 4.5 | **Same day** |
+| 4 | **Hireback Vacuum** | LSA directory: students not retained post-articles | 4.0–5.0 | Within 3 days |
+| 5 | **Spillage Graph** | Mega-deal + BigLaw conflict → boutique overflow | 5.0 | **Same day** |
 
 ---
 
 ## Architecture
 
-### 15 Scrapers
-
-| Scraper | Sources | Signal Type | Weight |
-|---|---|---|---|
-| `RSSFeedScraper` | 15 RSS feeds (Canadian Lawyer, Law Times, Globe, Bloomberg…) | `lateral_hire`, `press_release` | 1.5–2.0 |
-| `PressScraper` | Firm news pages, Canadian Lawyer, Law Times, The Lawyer's Daily | `lateral_hire`, `press_release` | 1.5–3.0 |
-| `LinkedInScraper` | Company feed, Google-cached profiles | `lateral_hire` | 2.0–3.5 |
-| `JobsScraper` | Firm careers, Indeed, LinkedIn jobs | `job_posting` | 2.0 |
-| `PublicationsScraper` | Firm insights, Lexology, Mondaq | `publication` | 1.0 |
-| `WebsiteScraper` | Practice area pages + change detection | `practice_page` | 2.5 |
-| `CanLIIScraper` | CanLII REST API — 25 courts & tribunals | `court_record` | 2.5 |
-| `SedarScraper` | SEDAR+ securities filings | `court_record` | 2.5–5.0 |
-| `GovTrackScraper` | Canada Gazette, Competition Bureau, CRTC, OSC, NEB, Privacy Commissioner, OSFI, IRCC | `court_record` | 2.5–3.0 |
-| `LobbyistScraper` | Federal Lobbyist Registry | `court_record` | 3.0 |
-| `ChambersScraper` | Chambers Canada, Legal 500 Canada | `ranking` | 3.0 |
-| `AwardsScraper` | Best Lawyers, Benchmark Canada, Lexpert, Who's Who Legal, Precedent | `ranking` | 2.5–3.0 |
-| `LawSchoolScraper` | Ultra Vires, lawrecruits.com, GreatStudentJobs, firm student pages | `recruit_posting` | 2.0 |
-| `BarAssociationScraper` | CBA (25 sections), OBA, LSO, Advocates' Society, CCCA, ACC | `bar_leadership`, `bar_speaking` | 1.5–3.5 |
-| `ConferenceScraper` | LSO CPD, OBA Institute, Osgoode PD, PDAC, IAPP, Canadian Institute | `bar_speaking`, `bar_sponsorship` | 1.5–2.5 |
-
-### Signal Confidence Tiers
-
 ```
-TIER 1 (weight 3.0–3.5)  bar_leadership · ranking · lateral_hire
-  Firm made a financial or reputational commitment.
-
-TIER 2 (weight 2.0–2.5)  court_record · practice_page · job_posting · recruit_posting
-  Observable, verifiable activity.
-
-TIER 3 (weight 1.0–1.5)  press_release · bar_speaking · publication
-  Early leading indicator — needs corroboration.
-```
-
-### Spike Detection
-
-Uses **z-score analysis** over a 4-week rolling baseline:
-- z-score ≥ 1.5 → flagged as significant spike
-- No prior history + score ≥ 3.5 → flagged as new signal
-
-### 17 Practice Departments
-
-Corporate/M&A · Private Equity · Capital Markets · Litigation · Restructuring ·
-Real Estate · Tax · Employment · IP · Data Privacy · ESG · Energy ·
-Financial Services · Competition · Healthcare · Immigration · Infrastructure
-
----
-
-## Quick Start
-
-### 1. Create GitHub repo
-
-```bash
-gh repo create law-firm-expansion-tracker --private
-git clone https://github.com/YOUR_USERNAME/law-firm-expansion-tracker.git
-cd law-firm-expansion-tracker
-```
-
-### 2. Copy all files into the repo
-
-```
-law-firm-expansion-tracker/
-├── main.py
-├── config.py
-├── firms.py
+law_tracker/
+├── config_calgary.py          # 30 firms, weights, API keys
+├── main_enhanced.py           # Orchestrator CLI
 ├── requirements.txt
 ├── .env.example
-├── .gitignore
-├── scrapers/          (15 scrapers + base.py + __init__.py)
-├── classifier/        (department.py + taxonomy.py + __init__.py)
-├── analysis/          (signals.py + __init__.py)
-├── database/          (db.py + __init__.py)
-├── alerts/            (notifier.py + __init__.py)
-├── dashboard/         (generator.py + __init__.py)
-└── .github/workflows/ (tracker.yml)
+│
+├── signals/
+│   ├── canlii_litigation.py   # Strategy 1: CanLII API + z-score spike
+│   ├── sedar_corporate.py     # Strategy 2: SEDAR+ RSS + PDF counsel extraction
+│   ├── linkedin_turnover.py   # Strategy 3: Proxycurl associate roster + departure detect
+│   ├── lsa_hireback.py        # Strategy 4: LSA directory + retention gap
+│   └── spillage_graph.py      # Strategy 5: Network graph + deal monitor
+│
+├── scoring/
+│   └── aggregator.py          # Time-decay scoring, corroboration boost, leaderboard
+│
+├── outreach/
+│   └── generator.py           # Signal-aware personalized email drafts
+│
+├── alerts/
+│   └── notifier.py            # Telegram (Tier-1 instant) + SendGrid (weekly digest)
+│
+├── database/
+│   └── db.py                  # SQLite schema (all 5 strategies)
+│
+└── .github/workflows/
+    └── tracker.yml            # 4 cron jobs + manual dispatch
 ```
-
-### 3. Add GitHub Secrets
-
-**Repo → Settings → Secrets and variables → Actions**
-
-| Secret Name | Value |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Your chat/channel ID |
-
-### 4. Enable GitHub Pages
-
-**Repo → Settings → Pages → Source: Deploy from branch → Branch: `main` → Folder: `/docs`**
-
-Dashboard will be live at: `https://YOUR_USERNAME.github.io/law-firm-expansion-tracker/`
-
-### 5. Push and test
-
-```bash
-git add .
-git commit -m "Initial commit"
-git push origin main
-```
-
-Then: **Actions → Run workflow → firm: osler** to test a single firm.
 
 ---
 
-## Local Development
+## Scoring Engine
+
+```
+firm_score = Σ ( weight × e^(-0.1×days_ago) × corroboration_boost × tier_mult )
+
+corroboration_boost = 1.30 if ≥2 independent strategies fire
+tier_mult           = 1.20 for boutiques, 1.10 for mid-size, 1.0 for BigLaw
+```
+
+Signals decay exponentially so a 7-day-old alert is worth ~50% of a fresh one.
+
+---
+
+## Spillage Graph
+
+The **spillage graph** maps which Calgary boutiques most frequently appear as
+*opposing counsel* to BigLaw firms in ABQB decisions and SEDAR+ transactions.
+It is built automatically as CanLII and SEDAR data is ingested.
+
+When a mega-deal is announced:
+1. Identify which BigLaw firm holds the retainer (via conflict radar)
+2. Look up their top 3 boutique co-appellants from the graph
+3. Fire a same-day alert: email those boutiques **before** they post the job
+
+```
+Blakes ─────── Bennett Jones (38 co-appearances)
+      ╲─────── BDP           (24 co-appearances)  ← alert this one today
+      ╲─────── Field Law      (19 co-appearances)
+```
+
+---
+
+## Setup
+
+### 1. Clone and configure
 
 ```bash
+git clone https://github.com/YOUR_USERNAME/law-firm-tracker-enhanced.git
+cd law-firm-tracker-enhanced
 cp .env.example .env
-# fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+# Fill in API keys
+```
 
+### 2. Install dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-# Test single firm
-python main.py --firm osler
+### 3. Initialise DB
 
-# Regenerate dashboard from existing data
-python main.py --dashboard
+```bash
+python main_enhanced.py --init-db
+```
 
-# Send digest from existing data
-python main.py --digest
+### 4. Bootstrap LinkedIn roster (run once)
+
+```bash
+python main_enhanced.py --build-roster
+```
+
+### 5. GitHub Secrets
+
+Add these in **Repo → Settings → Secrets → Actions**:
+
+| Secret | Source |
+|--------|--------|
+| `CANLII_API_KEY` | Register at canlii.org |
+| `PROXYCURL_API_KEY` | nubela.co/proxycurl |
+| `SENDGRID_API_KEY` | sendgrid.com |
+| `TELEGRAM_BOT_TOKEN` | @BotFather on Telegram |
+| `TELEGRAM_CHAT_ID` | Your chat ID |
+| `ALERT_EMAIL_FROM` | Your verified sender |
+| `ALERT_EMAIL_TO` | Your inbox |
+
+---
+
+## CLI Usage
+
+```bash
+# Run all 5 strategies + scoring + alerts
+python main_enhanced.py --all
+
+# Run individual strategies
+python main_enhanced.py --strategy canlii
+python main_enhanced.py --strategy sedar
+python main_enhanced.py --strategy linkedin
+python main_enhanced.py --strategy lsa
+python main_enhanced.py --strategy spillage
+
+# Analysis
+python main_enhanced.py --leaderboard     # ranked opportunity scores
+python main_enhanced.py --graph           # spillage graph + conflict radar
+python main_enhanced.py --outreach        # print personalized email drafts
+
+# Alerts
+python main_enhanced.py --digest          # send weekly email digest
 ```
 
 ---
 
 ## Cron Schedule
 
-| Time | Action |
-|---|---|
-| Daily 07:00 UTC | Full collection — all 15 scrapers × 26 firms |
-| Sunday 09:00 UTC | Weekly ranked digest via Telegram |
-| On demand | Manual dispatch from Actions tab |
+| Time (UTC) | Job |
+|-----------|-----|
+| Daily 07:00 | All 5 strategies + scoring + Telegram alerts |
+| Sunday 05:00 | LinkedIn departure check |
+| Sunday 09:00 | Weekly email digest + outreach plan |
+| Sept 1, Oct 1 | LSA hireback vacuum |
 
 ---
 
-## Telegram Output
+## Sample Output
 
-**Instant alert** (fires within 24h of Tier 1 signal):
 ```
-🚨 New Expansion Signal
+══════════════════════════════════════════════════════════════════════════
+🏛  CALGARY LAW FIRM HIRING OPPORTUNITY LEADERBOARD
+    Generated: 2026-03-20 07:14 UTC
+══════════════════════════════════════════════════════════════════════════
 
-🏛 Osler, Hoskin & Harcourt LLP
-🔒 Department: Data Privacy & Cybersecurity
-📌 Type: 🏅 Bar Leadership
-📝 [CBA] Partner elected Chair, Privacy Section
-🔑 Keywords: privacy, chair, section
-🔗 Source
+ 1. Burnet, Duckworth & Palmer LLP  [MID]
+    Score: 28.4  |  🚨 Same-Day  |  Signals: 7  ✅ CORROBORATED
+    Strategies: corporate · litigation · spillage
+    Top signal: BigLaw spillage → BDP: $2,100M deal (Cenovus/SEDAR+)
 
-🖥 View Full Dashboard →
-```
+ 2. Field Law  [MID]
+    Score: 19.1  |  ⚡ This Week  |  Signals: 4  ✅ CORROBORATED
+    Strategies: litigation · turnover
+    Top signal: Empty chair at Field Law: J. Smith departed → Cenovus in-house
 
-**Sunday digest** (ranked by expansion score):
-```
-📊 Law Firm Expansion Tracker
-Week of March 09, 2026
-🖥 Open Live Dashboard →
-──────────────────────────────
-7 expansion signal(s) across 4 firm(s)
-
-1. 🏛 Osler, Hoskin & Harcourt LLP
-   🔒 Data Privacy & Cybersecurity 🔥
-   Score: 18.4 ↑ 2.3× baseline
-   Signals: 6 (3 bar-lead, 2 rankings, 1 job)
-   • 🏅 Bar Leadership: Partner elected Chair...
-   • 🏆 Ranking: Chambers Band 1 (new entry)...
-
-2. 🏛 McCarthy Tétrault LLP
-   🌿 ESG & Regulatory
-   Score: 12.1 ↑ 1.9× baseline
-   ...
+ 3. Bennett Jones LLP  [BIG]
+    Score: 14.7  |  🚨 Same-Day  |  Signals: 3
+    Strategies: corporate · spillage
+    Top signal: SEDAR+ deal: ARC Resources — prospectus ($880M)
 ```
 
 ---
 
-## Adding Firms
+## Sample Outreach Email (Strategy 2)
 
-Edit `firms.py` and add an entry to the `FIRMS` list:
+```
+Subject: First-Year Associate — Securities Background — Re: ARC Resources Prospectus
 
-```python
-{
-    "id":           "unique_id",
-    "name":         "Full Firm Name LLP",
-    "short":        "Short Name",
-    "website":      "https://www.firmname.com",
-    "careers_url":  "https://www.firmname.com/careers",
-    "news_url":     "https://www.firmname.com/news",
-    "linkedin_slug":"firm-linkedin-slug",
-    "hq":           "City",
-    "alt_names":    ["Alt Name", "Abbreviation"],
-},
+Dear Hiring Partner,
+
+I noticed that Bennett Jones LLP was named as counsel on the recent 
+prospectus for ARC Resources on SEDAR+ (deal value: ~$880M). 
+Transactions of this scale typically require substantial junior due 
+diligence and document review support.
+
+My background is in Canadian securities regulation and M&A, and I am 
+available to start on short notice.
+
+[Your Name]
 ```
 
-## Tuning the Classifier
+---
 
-Edit `classifier/taxonomy.py` to add keywords and phrases per department.
-Phrase matches (multi-word) get a **2.5× boost** over single-word keywords.
+## Data Sources & Compliance
+
+| Source | Access Method | Notes |
+|--------|--------------|-------|
+| CanLII | Official REST API | Rate-limited to 1 req/sec; API key required |
+| SEDAR+ | Public RSS feed | Official public feed |
+| LSA Directory | Public HTML | Publicly available lawyer lookup |
+| LinkedIn | Proxycurl API | Uses public profile data per hiQ v. LinkedIn |
+| Google News | Public RSS | No authentication required |
+
+**CanLII note**: The tracker uses only the official CanLII API and strictly
+respects rate limits. CanLII actively enforces against unauthorized bulk scraping.
+
+---
+
+## Adding More Firms
+
+Edit `config_calgary.py` → `CALGARY_FIRMS` list. Each firm needs:
+- `id`, `name`, `aliases`, `linkedin_slug`, `tier`, `focus`
+
+## Tuning Weights
+
+Edit `SIGNAL_WEIGHTS` in `config_calgary.py`.

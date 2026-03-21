@@ -1,131 +1,97 @@
 """
-Dashboard generator — produces docs/index.html
-A static single-file dashboard showing signals and alerts.
+dashboard/generator.py  (v2)
+Reads live DB and injects JSON into docs/index.html.
 """
+import json, pathlib, logging, sys, os, math
+from datetime import datetime
+from collections import defaultdict
 
-import json
-import logging
-import os
-from datetime import datetime, timezone, timedelta
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config_calgary import FIRM_BY_ID, REPORT_OUTPUT_DIR, DASHBOARD_OUTPUT
+from database.db import get_all_signals_for_dashboard, get_spillage_graph
 
-logger = logging.getLogger("dashboard")
+log = logging.getLogger(__name__)
 
+DECAY_LAMBDA = 0.10
+URGENCY_MAP = {
+    "sedar_major_deal": "today", "biglaw_spillage_predicted": "today",
+    "linkedin_turnover_detected": "today", "linkedin_new_vacancy": "today",
+    "canlii_appearance_spike": "week", "canlii_new_large_file": "week",
+    "sedar_counsel_named": "week", "lsa_retention_gap": "3days",
+    "lsa_student_not_retained": "3days", "job_posting": "month",
+    "lateral_hire": "month", "ranking": "month",
+}
+STRATEGY_GROUPS = {
+    "litigation": ["canlii_appearance_spike","canlii_new_large_file"],
+    "corporate":  ["sedar_major_deal","sedar_counsel_named"],
+    "turnover":   ["linkedin_turnover_detected","linkedin_new_vacancy"],
+    "hireback":   ["lsa_student_not_retained","lsa_retention_gap"],
+    "spillage":   ["biglaw_spillage_predicted"],
+    "baseline":   ["job_posting","lateral_hire","ranking"],
+}
+SIG_TO_STRAT = {t: g for g, ts in STRATEGY_GROUPS.items() for t in ts}
 
-class DashboardGenerator:
-    def __init__(self, db, output_path: str = "docs/index.html"):
-        self.db = db
-        self.output_path = output_path
+def _decay(ts):
+    try:
+        days = (datetime.utcnow() - datetime.fromisoformat(ts)).days
+        return math.exp(-DECAY_LAMBDA * max(0, days))
+    except: return 0.5
 
-    def generate(self):
-        os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
+def build_leaderboard(signals):
+    firm_sigs = defaultdict(list)
+    for s in signals: firm_sigs[s["firm_id"]].append(s)
+    rows = []
+    for fid, sigs in firm_sigs.items():
+        firm  = FIRM_BY_ID.get(fid, {"name": fid, "tier":"?","focus":[]})
+        score = sum(s["weight"] * _decay(s["detected_at"]) for s in sigs)
+        strats = set(SIG_TO_STRAT.get(s["signal_type"],"other") for s in sigs)
+        if len(strats) >= 2: score *= 1.30
+        score *= {"boutique":1.2,"mid":1.1,"big":1.0}.get(firm.get("tier","big"),1.0)
+        top = max(sigs, key=lambda s: s["weight"])
+        rows.append({
+            "firm_id": fid, "firm_name": firm.get("name",fid),
+            "tier": firm.get("tier","?"), "score": round(score,2),
+            "signal_count": len(sigs), "strategies": sorted(strats),
+            "corroborated": len(strats)>=2,
+            "urgency": URGENCY_MAP.get(top["signal_type"],"month"),
+            "top_signal": top.get("title","")[:80],
+        })
+    return sorted(rows, key=lambda x: x["score"], reverse=True)
 
-        signals = self.db.get_signals_this_week()
-        # Pull recent alerts from weekly_scores
-        scores = self.db.conn.execute(
-            "SELECT * FROM weekly_scores ORDER BY score DESC LIMIT 50"
-        ).fetchall()
+def generate_dashboard():
+    raw  = get_all_signals_for_dashboard(days=30)
+    edges = get_spillage_graph()
+    lb   = build_leaderboard(raw)
+    spill = [{"boutique": FIRM_BY_ID.get(e["boutique_id"],{}).get("name",e["boutique_id"]),
+               "biglaw":   FIRM_BY_ID.get(e["biglaw_id"],{}).get("name",e["biglaw_id"]),
+               "count":    e["co_appearances"]} for e in edges[:12]]
 
-        html = self._render(signals, [dict(r) for r in scores])
-        with open(self.output_path, "w", encoding="utf-8") as f:
-            f.write(html)
+    enriched = []
+    for s in raw[:50]:
+        firm = FIRM_BY_ID.get(s["firm_id"],{})
+        enriched.append({**s,
+            "firm_name": firm.get("name",s["firm_id"]),
+            "tier":      firm.get("tier","?"),
+            "focus":     " · ".join(firm.get("focus",[])),
+            "urgency":   URGENCY_MAP.get(s["signal_type"],"month"),
+        })
 
-        logger.info(f"Dashboard → {self.output_path} ({len(signals)} signals, {len(scores)} alerts)")
+    payload = {"generated_at": datetime.utcnow().isoformat()+"Z",
+               "signals": enriched, "leaderboard": lb, "spillage": spill}
+    js = json.dumps(payload, default=str, ensure_ascii=False)
 
-    def _render(self, signals: list[dict], scores: list[dict]) -> str:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    tmpl = pathlib.Path(DASHBOARD_OUTPUT).read_text(encoding="utf-8")
+    out  = tmpl.replace(
+        "const RAW_DATA = typeof __TRACKER_DATA__ !== 'undefined' ? __TRACKER_DATA__ : null;",
+        f"const __TRACKER_DATA__ = {js};\nconst RAW_DATA = __TRACKER_DATA__;"
+    )
+    pathlib.Path(DASHBOARD_OUTPUT).write_text(out, encoding="utf-8")
+    pathlib.Path(REPORT_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    with open(f"{REPORT_OUTPUT_DIR}/leaderboard.json","w") as f: json.dump(lb, f, indent=2, default=str)
+    with open(f"{REPORT_OUTPUT_DIR}/signals.json","w") as f: json.dump(enriched, f, indent=2, default=str)
+    log.info("[Dashboard] %d signals → %s", len(enriched), DASHBOARD_OUTPUT)
+    return payload
 
-        # Build per-firm summaries
-        from collections import defaultdict, Counter
-        firm_scores = defaultdict(lambda: {"score": 0, "signals": 0, "departments": Counter()})
-        for row in scores:
-            fid = row["firm_id"]
-            firm_scores[fid]["name"] = row["firm_name"]
-            firm_scores[fid]["score"] += row["score"]
-            firm_scores[fid]["signals"] += row["signal_count"]
-            firm_scores[fid]["departments"][row["department"]] += 1
-
-        # Top firms sorted by score
-        top_firms = sorted(firm_scores.items(), key=lambda x: x[1]["score"], reverse=True)[:10]
-
-        # Recent signals table
-        recent = signals[:30]
-
-        rows_firms = ""
-        for rank, (fid, data) in enumerate(top_firms, 1):
-            top_depts = ", ".join(d for d, _ in data["departments"].most_common(3))
-            rows_firms += (
-                f"<tr><td>{rank}</td><td>{data.get('name','')}</td>"
-                f"<td>{data['score']:.1f}</td><td>{data['signals']}</td>"
-                f"<td>{top_depts}</td></tr>\n"
-            )
-
-        rows_signals = ""
-        for s in recent:
-            url = s.get("url", "")
-            title = s.get("title", "")[:80]
-            linked = f'<a href="{url}" target="_blank">{title}</a>' if url else title
-            rows_signals += (
-                f"<tr><td>{s.get('scraped_at','')[:10]}</td>"
-                f"<td>{s.get('firm_name','')}</td>"
-                f"<td>{s.get('signal_type','')}</td>"
-                f"<td>{s.get('department','')}</td>"
-                f"<td>{linked}</td></tr>\n"
-            )
-
-        dash_url = os.getenv("DASHBOARD_URL", "#")
-
-        return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Law Firm Expansion Tracker</title>
-<style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          background: #0f1117; color: #e2e8f0; margin: 0; padding: 24px; }}
-  h1 {{ color: #fff; margin-bottom: 4px; }}
-  .sub {{ color: #94a3b8; font-size: 0.85rem; margin-bottom: 32px; }}
-  .card {{ background: #1e2433; border-radius: 12px; padding: 24px;
-           margin-bottom: 24px; border: 1px solid #2d3748; }}
-  h2 {{ color: #7dd3fc; margin-top: 0; font-size: 1rem; text-transform: uppercase;
-        letter-spacing: 0.05em; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 0.82rem; }}
-  th {{ text-align: left; color: #94a3b8; border-bottom: 1px solid #2d3748;
-        padding: 6px 8px; font-weight: 600; }}
-  td {{ padding: 6px 8px; border-bottom: 1px solid #1a2035; }}
-  tr:hover td {{ background: #263042; }}
-  a {{ color: #7dd3fc; text-decoration: none; }}
-  a:hover {{ text-decoration: underline; }}
-  .badge {{ background: #1d4ed8; color: #bfdbfe; padding: 2px 8px;
-            border-radius: 12px; font-size: 0.75rem; }}
-</style>
-</head>
-<body>
-<h1>🏛 Law Firm Expansion Tracker</h1>
-<div class="sub">Last updated: {now} &nbsp;·&nbsp;
-  {len(signals)} signals (21-day window) &nbsp;·&nbsp;
-  {len(scores)} scored alerts</div>
-
-<div class="card">
-  <h2>🔥 Top Expanding Firms</h2>
-  <table>
-    <tr><th>#</th><th>Firm</th><th>Score</th><th>Signals</th><th>Hot Departments</th></tr>
-    {rows_firms or "<tr><td colspan=5>No data yet.</td></tr>"}
-  </table>
-</div>
-
-<div class="card">
-  <h2>📡 Recent Signals</h2>
-  <table>
-    <tr><th>Date</th><th>Firm</th><th>Type</th><th>Department</th><th>Title</th></tr>
-    {rows_signals or "<tr><td colspan=5>No signals yet.</td></tr>"}
-  </table>
-</div>
-
-<div class="sub" style="margin-top:32px;">
-  Auto-generated by
-  <a href="https://github.com">Law Firm Expansion Tracker</a>.
-  Runs daily at 07:00 UTC.
-</div>
-</body>
-</html>"""
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    generate_dashboard()

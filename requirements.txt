@@ -1,5 +1,21 @@
+# Core
 requests>=2.31.0
+feedparser>=6.0.10
 beautifulsoup4>=4.12.0
-lxml>=5.0.0
+lxml>=5.1.0
+pdfplumber>=0.10.3
+pypdf>=4.0.0
+
+# Data & ML
+numpy>=1.26.0
+pandas>=2.2.0
+networkx>=3.2.0
+scipy>=1.12.0
+# prophet>=1.1.4   # optional — uncomment for richer forecasting
+
+# Finance
+yfinance>=0.2.36
+
+# Email
+sendgrid>=6.11.0
 python-dotenv>=1.0.0
-feedparser>=6.0.11
