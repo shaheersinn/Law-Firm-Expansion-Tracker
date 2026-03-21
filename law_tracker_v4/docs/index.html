@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calgary Law Tracker · Intelligence Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+/* ════════════════════════ DESIGN TOKENS ════════════════════════ */
+:root {
+  --bg:      #F8F7F4;
+  --surface: #FFFFFF;
+  --sf2:     #F2F1EE;
+  --sf3:     #ECEAE5;
+  --border:  #E8E6E1;
+  --bstrong: #D4D0C8;
+  --teal:    #0C9182;
+  --emerald: #059669;
+  --grad:    linear-gradient(135deg,#0C9182 0%,#059669 100%);
+  --gsoft:   linear-gradient(135deg,rgba(12,145,130,.10) 0%,rgba(5,150,105,.10) 100%);
+  --ghover:  linear-gradient(135deg,rgba(12,145,130,.18) 0%,rgba(5,150,105,.18) 100%);
+  --red:     #EF4444;  --red-bg:   rgba(239,68,68,.10);
+  --amber:   #F59E0B;  --amber-bg: rgba(245,158,11,.10);
+  --blue:    #3B82F6;  --blue-bg:  rgba(59,130,246,.10);
+  --green:   #10B981;  --green-bg: rgba(16,185,129,.10);
+  --violet:  #8B5CF6;  --violet-bg:rgba(139,92,246,.10);
+  --tx1: #1A1916; --tx2: #5C5A55; --tx3: #9C9A95; --txw: #FFFFFF;
+  --s-sm: 0 1px 3px rgba(26,25,22,.06),0 1px 2px rgba(26,25,22,.04);
+  --s:    0 4px 12px rgba(26,25,22,.08),0 2px 6px rgba(26,25,22,.04);
+  --s-lg: 0 16px 40px rgba(26,25,22,.10),0 6px 16px rgba(26,25,22,.06);
+  --f-d: 'Cormorant Garamond',Georgia,serif;
+  --f-b: 'Plus Jakarta Sans',system-ui,sans-serif;
+  --f-m: 'JetBrains Mono','Fira Code',monospace;
+  --r-s:6px; --r:12px; --r-l:20px; --r-xl:28px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;scroll-behavior:smooth}
+body{font-family:var(--f-b);background:var(--bg);color:var(--tx1);
+  min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* ── TOPBAR ── */
+.topbar{position:sticky;top:0;z-index:200;background:rgba(248,247,244,.94);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:0 24px}
+.topbar-inner{max-width:1440px;margin:0 auto;display:flex;align-items:center;
+  justify-content:space-between;height:58px;gap:16px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-logo{width:30px;height:30px;background:var(--grad);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;font-size:15px;
+  box-shadow:var(--s-sm);flex-shrink:0}
+.brand-name{font-family:var(--f-d);font-size:1.15rem;font-weight:600;
+  letter-spacing:-.01em;white-space:nowrap}
+.topbar-right{display:flex;align-items:center;gap:20px}
+.live-badge{display:flex;align-items:center;gap:6px;font-family:var(--f-m);
+  font-size:.68rem;font-weight:500;color:var(--emerald);letter-spacing:.06em;text-transform:uppercase}
+.live-dot{width:7px;height:7px;background:var(--emerald);border-radius:50%;
+  animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.topbar-ts{font-family:var(--f-m);font-size:.67rem;color:var(--tx3);letter-spacing:.04em}
+
+/* ── LAYOUT ── */
+.wrap{max-width:1440px;margin:0 auto;padding:0 24px 80px}
+
+/* ── HERO ── */
+.hero{padding:48px 0 36px;display:grid;grid-template-columns:1fr auto;
+  gap:28px;align-items:end;border-bottom:1px solid var(--border);margin-bottom:36px}
+.hero-eye{font-family:var(--f-m);font-size:.68rem;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin-bottom:10px}
+.hero-h{font-family:var(--f-d);font-size:clamp(2.2rem,3.5vw,3.4rem);
+  font-weight:600;line-height:1.1;letter-spacing:-.02em;margin-bottom:12px}
+.hero-h em{font-style:italic;background:var(--grad);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:.92rem;color:var(--tx2);max-width:500px;line-height:1.65}
+
+/* ── KPI STRIP ── */
+.kpi-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;min-width:380px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-l);
+  padding:16px 18px;box-shadow:var(--s-sm);transition:box-shadow .2s}
+.kpi:hover{box-shadow:var(--s)}
+.kpi-lbl{font-family:var(--f-m);font-size:.62rem;font-weight:500;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);margin-bottom:2px}
+.kpi-val{font-family:var(--f-d);font-size:2rem;font-weight:600;
+  line-height:1;letter-spacing:-.02em}
+.kpi-val.g{background:var(--grad);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text}
+.kpi-sub{font-family:var(--f-m);font-size:.6rem;margin-top:2px}
+
+/* ── SECTION HEADER ── */
+.sh{display:flex;align-items:baseline;justify-content:space-between;
+  margin-bottom:18px;gap:12px}
+.sh-title{font-family:var(--f-d);font-size:1.55rem;font-weight:600;
+  letter-spacing:-.02em}
+.sh-ct{font-family:var(--f-m);font-size:.68rem;font-weight:500;
+  letter-spacing:.08em;color:var(--tx3);text-transform:uppercase}
+
+/* ── TICKER BANNER ── */
+.ticker-wrap{background:var(--tx1);border-radius:var(--r);overflow:hidden;
+  margin-bottom:28px;box-shadow:var(--s-sm)}
+.ticker-inner{display:flex;align-items:center;height:38px}
+.ticker-label{flex-shrink:0;background:var(--grad);padding:0 16px;height:100%;
+  display:flex;align-items:center;font-family:var(--f-m);font-size:.65rem;
+  font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#fff;white-space:nowrap}
+.ticker-track{flex:1;overflow:hidden;position:relative}
+.ticker-scroll{display:flex;gap:0;animation:ticker 40s linear infinite;white-space:nowrap}
+.ticker-scroll:hover{animation-play-state:paused}
+.ticker-item{padding:0 32px 0 0;font-family:var(--f-m);font-size:.68rem;
+  color:rgba(255,255,255,.75);display:inline-flex;align-items:center;gap:8px}
+.ticker-item .dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.ticker-item.t0 .dot{background:var(--red)}
+.ticker-item.t1 .dot{background:var(--amber)}
+.ticker-item.t2 .dot{background:var(--blue)}
+@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ── FILTER BAR ── */
+.fbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
+.fbtn{font-family:var(--f-m);font-size:.68rem;font-weight:500;letter-spacing:.07em;
+  text-transform:uppercase;padding:6px 14px;border-radius:50px;
+  border:1.5px solid var(--border);background:var(--surface);
+  color:var(--tx2);cursor:pointer;transition:all .18s}
+.fbtn:hover{border-color:var(--teal);color:var(--teal)}
+.fbtn.act{background:var(--grad);border-color:transparent;color:#fff;box-shadow:var(--s-sm)}
+
+/* ── SIGNAL CARDS ── */
+.sgrid{display:grid;gap:12px}
+.sc{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-l);
+  padding:20px 24px;box-shadow:var(--s-sm);display:grid;
+  grid-template-columns:44px 1fr auto;gap:0 16px;align-items:start;
+  cursor:pointer;transition:box-shadow .2s,border-color .2s,transform .15s;
+  position:relative;overflow:hidden;animation:fadeUp .3s ease both}
+.sc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px 0 0 4px}
+.sc[data-u="same-hour"]::before{background:var(--violet)}
+.sc[data-u="today"]::before{background:var(--red)}
+.sc[data-u="week"]::before{background:var(--amber)}
+.sc[data-u="3days"]::before{background:var(--blue)}
+.sc[data-u="month"]::before{background:var(--green)}
+.sc:hover{box-shadow:var(--s);border-color:var(--bstrong);transform:translateY(-1px)}
+.sc.exp{border-color:var(--teal);box-shadow:var(--s-lg)}
+.sc-icon{width:44px;height:44px;border-radius:var(--r);background:var(--gsoft);
+  display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin-top:1px}
+.sc-firm{font-family:var(--f-d);font-size:1.08rem;font-weight:600;
+  margin-bottom:3px;letter-spacing:-.01em}
+.sc-title{font-size:.86rem;color:var(--tx2);margin-bottom:8px;line-height:1.45}
+.sc-tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{font-family:var(--f-m);font-size:.62rem;font-weight:500;letter-spacing:.06em;
+  text-transform:uppercase;padding:2px 8px;border-radius:50px}
+.tag-pa{background:var(--gsoft);color:var(--teal);border:1px solid rgba(12,145,130,.2)}
+.tag-sig{background:var(--sf2);color:var(--tx2);border:1px solid var(--border)}
+.tag-tier{color:var(--tx3);border:1px solid var(--border)}
+.sc-meta{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.ub{font-family:var(--f-m);font-size:.62rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;padding:4px 10px;border-radius:50px}
+.u-samehour{background:var(--violet-bg);color:var(--violet)}
+.u-today{background:var(--red-bg);color:var(--red)}
+.u-week{background:var(--amber-bg);color:var(--amber)}
+.u-3days{background:var(--blue-bg);color:var(--blue)}
+.u-month{background:var(--green-bg);color:var(--green)}
+.sc-w{font-family:var(--f-d);font-size:1.45rem;font-weight:600;line-height:1;
+  letter-spacing:-.02em;text-align:right}
+.sc-wl{font-family:var(--f-m);font-size:.58rem;letter-spacing:.1em;
+  color:var(--tx3);text-transform:uppercase;text-align:right}
+.sc-ts{font-family:var(--f-m);font-size:.62rem;color:var(--tx3);text-align:right}
+.sc-detail{grid-column:1/-1;margin-top:14px;padding-top:14px;
+  border-top:1px solid var(--border);display:none}
+.sc.exp .sc-detail{display:block}
+.sc-desc{font-size:.875rem;color:var(--tx2);line-height:1.7;margin-bottom:12px}
+.sc-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font-family:var(--f-b);font-size:.78rem;font-weight:500;padding:7px 14px;
+  border-radius:var(--r-s);border:1.5px solid transparent;cursor:pointer;
+  text-decoration:none;transition:all .15s;display:inline-flex;align-items:center;gap:5px}
+.btn-p{background:var(--grad);color:#fff;box-shadow:var(--s-sm)}
+.btn-p:hover{box-shadow:var(--s);opacity:.9}
+.btn-g{background:transparent;border-color:var(--bstrong);color:var(--tx2)}
+.btn-g:hover{border-color:var(--teal);color:var(--teal)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── MAIN GRID ── */
+.main-grid{display:grid;grid-template-columns:1fr 400px;gap:24px;margin-top:40px}
+
+/* ── LEADERBOARD ── */
+.lb-card{background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-xl);box-shadow:var(--s);overflow:hidden}
+.lb-hdr{padding:22px 26px 0}
+.lb-row{display:grid;grid-template-columns:26px 1fr 90px auto;gap:0 12px;
+  align-items:center;padding:14px 26px;border-top:1px solid var(--border);
+  transition:background .15s;cursor:default}
+.lb-row:hover{background:var(--sf2)}
+.lb-rank{font-family:var(--f-d);font-size:1.25rem;font-weight:600;color:var(--tx3);letter-spacing:-.02em}
+.lb-rank.top{color:var(--teal)}
+.lb-name{font-family:var(--f-d);font-size:.98rem;font-weight:600;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-sub{font-family:var(--f-m);font-size:.6rem;letter-spacing:.06em;
+  color:var(--tx3);text-transform:uppercase;margin-top:2px}
+.lb-bar{height:4px;background:var(--sf3);border-radius:2px;overflow:hidden}
+.lb-fill{height:100%;background:var(--grad);border-radius:2px;transition:width .7s cubic-bezier(.16,1,.3,1)}
+.lb-score{font-family:var(--f-d);font-size:1.25rem;font-weight:600;
+  letter-spacing:-.02em;text-align:right;white-space:nowrap}
+
+/* ── PRESSURE GAUGE ── */
+.pressure-section{margin-top:24px}
+.pressure-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.pg-card{background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-l);padding:16px 18px;box-shadow:var(--s-sm)}
+.pg-firm{font-family:var(--f-d);font-size:.95rem;font-weight:600;margin-bottom:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg-bar-wrap{position:relative;height:8px;background:var(--sf3);border-radius:4px;overflow:hidden;margin:8px 0}
+.pg-bar-fill{height:100%;border-radius:4px;transition:width .8s cubic-bezier(.16,1,.3,1)}
+.pg-bar-fill.comfortable{background:var(--green)}
+.pg-bar-fill.busy{background:var(--amber)}
+.pg-bar-fill.overstretched{background:var(--red)}
+.pg-bar-fill.crisis{background:linear-gradient(90deg,var(--red),var(--violet))}
+.pg-index{font-family:var(--f-d);font-size:1.4rem;font-weight:600;letter-spacing:-.02em}
+.pg-status{font-family:var(--f-m);font-size:.6rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.pg-status.comfortable{color:var(--green)}
+.pg-status.busy{color:var(--amber)}
+.pg-status.overstretched{color:var(--red)}
+.pg-status.crisis{color:var(--violet)}
+
+/* ── D3 NETWORK GRAPH ── */
+.network-section{margin-top:40px}
+.network-card{background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-xl);box-shadow:var(--s);overflow:hidden}
+.network-hdr{padding:22px 26px 16px;border-bottom:1px solid var(--border)}
+.network-body{padding:0}
+#spillageGraph{width:100%;height:480px;display:block}
+.node-biglaw circle{fill:var(--teal);stroke:#fff;stroke-width:2}
+.node-boutique circle{fill:var(--emerald);stroke:#fff;stroke-width:2;opacity:.85}
+.link{stroke:var(--border);stroke-opacity:.7}
+.node-label{font-family:var(--f-m);font-size:10px;fill:var(--tx2);
+  pointer-events:none;text-shadow:0 0 4px white}
+
+/* ── VELOCITY CHART ── */
+.velocity-section{margin-top:40px}
+.vc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.vc-cell{background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-l);padding:16px 18px;box-shadow:var(--s-sm);
+  transition:all .2s;cursor:default}
+.vc-cell:hover{box-shadow:var(--s);transform:translateY(-2px)}
+.vc-cell.hot{border-color:rgba(12,145,130,.4);background:var(--gsoft)}
+.vc-cell.surge{border-color:rgba(239,68,68,.35);background:var(--red-bg)}
+.vc-emoji{font-size:1.3rem;margin-bottom:6px}
+.vc-name{font-size:.78rem;font-weight:600;margin-bottom:3px}
+.vc-ratio{font-family:var(--f-d);font-size:1.5rem;font-weight:600;letter-spacing:-.02em}
+.vc-label{font-family:var(--f-m);font-size:.6rem;letter-spacing:.07em;
+  text-transform:uppercase;margin-top:2px}
+.vc-label.up{color:var(--red)}
+.vc-label.stable{color:var(--green)}
+.sparkline{width:100%;height:24px;margin-top:6px}
+
+/* ── RIGHT SIDEBAR ── */
+.sidebar{display:flex;flex-direction:column;gap:20px}
+.sidebar-card{background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-xl);box-shadow:var(--s);overflow:hidden}
+.scard-hdr{padding:18px 20px 12px}
+.scard-hdr .sh-title{font-size:1.2rem}
+.scard-body{padding:0 0 8px}
+.radar-item{padding:12px 20px;border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center}
+.radar-co{font-size:.82rem;font-weight:500}
+.radar-firms{font-family:var(--f-m);font-size:.62rem;color:var(--teal);
+  text-align:right;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* outreach countdown */
+.oplan-item{padding:12px 20px;border-top:1px solid var(--border)}
+.oplan-firm{font-family:var(--f-d);font-size:.95rem;font-weight:600}
+.oplan-strat{font-size:.78rem;color:var(--tx2);margin-top:2px;line-height:1.4}
+.oplan-urgency{font-family:var(--f-m);font-size:.62rem;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;margin-top:6px}
+
+/* ── FOOTER ── */
+.footer{margin-top:64px;padding:24px 0;border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap}
+.ft-src{font-family:var(--f-m);font-size:.62rem;letter-spacing:.06em;
+  color:var(--tx3);text-transform:uppercase}
+.ft-src span{color:var(--teal)}
+.ft-cron{font-family:var(--f-m);font-size:.62rem;color:var(--tx3)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:1024px){.hero{grid-template-columns:1fr}.kpi-strip{min-width:unset;grid-template-columns:repeat(3,1fr)}.main-grid{grid-template-columns:1fr}}
+@media(max-width:640px){.wrap{padding:0 16px 60px}.kpi-strip{grid-template-columns:repeat(2,1fr)}}
+
+/* ── OUTREACH MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(26,25,22,.5);
+  z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--r-xl);box-shadow:var(--s-lg);
+  width:560px;max-width:92vw;max-height:80vh;overflow:hidden;display:flex;flex-direction:column}
+.modal-hdr{padding:20px 24px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-family:var(--f-d);font-size:1.2rem;font-weight:600}
+.modal-close{background:none;border:none;cursor:pointer;font-size:1.2rem;
+  color:var(--tx3);padding:4px 8px;border-radius:var(--r-s)}
+.modal-close:hover{color:var(--tx1);background:var(--sf2)}
+.modal-body{padding:20px 24px;overflow-y:auto;flex:1}
+.modal-ta{width:100%;min-height:200px;font-family:var(--f-m);font-size:.8rem;
+  line-height:1.65;padding:14px;border:1.5px solid var(--border);border-radius:var(--r);
+  background:var(--sf2);color:var(--tx1);resize:vertical;outline:none}
+.modal-ta:focus{border-color:var(--teal)}
+.modal-footer{padding:14px 24px;border-top:1px solid var(--border);
+  display:flex;justify-content:flex-end;gap:8px}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar"><div class="topbar-inner">
+  <div class="brand">
+    <div class="brand-logo">⚖</div>
+    <span class="brand-name">Calgary Law Intelligence</span>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-ts" id="ts">—</span>
+    <div class="live-badge"><div class="live-dot"></div>Live · Every 2h</div>
+  </div>
+</div></div>
+
+<div class="wrap">
+
+<!-- HERO -->
+<div class="hero">
+  <div>
+    <div class="hero-eye">30 Firms · 12 Signal Types · 3 Intelligence Layers</div>
+    <h1 class="hero-h">The hiring signal<br><em>before they know.</em></h1>
+    <p class="hero-sub">Five real-time data pipelines. Predictive pressure modelling.
+    BigLaw spillage network. Partner clock tracking. You email the hiring partner
+    the same afternoon a $2B deal closes.</p>
+  </div>
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-lbl">Signals 30d</div>
+      <div class="kpi-val g" id="k0">—</div><div class="kpi-sub" style="color:var(--tx3)">total</div></div>
+    <div class="kpi"><div class="kpi-lbl">Today</div>
+      <div class="kpi-val" id="k1">—</div><div class="kpi-sub" style="color:var(--red)">act now</div></div>
+    <div class="kpi"><div class="kpi-lbl">Crisis</div>
+      <div class="kpi-val" id="k2">—</div><div class="kpi-sub" style="color:var(--violet)">w≥5.5</div></div>
+    <div class="kpi"><div class="kpi-lbl">Firms</div>
+      <div class="kpi-val" id="k3">—</div><div class="kpi-sub" style="color:var(--tx3)">/30</div></div>
+    <div class="kpi"><div class="kpi-lbl">Top Score</div>
+      <div class="kpi-val g" id="k4">—</div><div class="kpi-sub" id="k4f" style="color:var(--tx3);font-size:.58rem"></div></div>
+  </div>
+</div>
+
+<!-- TICKER -->
+<div class="ticker-wrap">
+  <div class="ticker-inner">
+    <div class="ticker-label">🔴 Live Feed</div>
+    <div class="ticker-track"><div class="ticker-scroll" id="ticker"></div></div>
+  </div>
+</div>
+
+<!-- SIGNAL FEED -->
+<div class="sh"><h2 class="sh-title">Signal Feed</h2><span class="sh-ct" id="sigct">—</span></div>
+<div class="fbar" id="fbar">
+  <button class="fbtn act" data-f="all">All</button>
+  <button class="fbtn" data-f="same-hour">🟣 Same Hour</button>
+  <button class="fbtn" data-f="today">🔴 Today</button>
+  <button class="fbtn" data-f="securities">Securities</button>
+  <button class="fbtn" data-f="litigation">Litigation</button>
+  <button class="fbtn" data-f="energy">Energy</button>
+  <button class="fbtn" data-f="corporate">Corporate</button>
+  <button class="fbtn" data-f="spillage">Spillage</button>
+  <button class="fbtn" data-f="pressure">Pressure</button>
+</div>
+<div class="sgrid" id="sgrid"></div>
+
+<!-- MAIN GRID: Leaderboard + Sidebar -->
+<div class="main-grid">
+  <div>
+    <!-- Leaderboard -->
+    <div class="lb-card">
+      <div class="lb-hdr"><div class="sh" style="margin-bottom:8px">
+        <h2 class="sh-title">Opportunity Leaderboard</h2>
+        <span class="sh-ct">composite score · 30-day</span>
+      </div></div>
+      <div id="leaderboard"></div>
+    </div>
+
+    <!-- Pressure Model -->
+    <div class="pressure-section">
+      <div class="sh"><h2 class="sh-title">Firm Pressure Index</h2>
+        <span class="sh-ct">est. hours / capacity</span></div>
+      <div class="pressure-grid" id="pressureGrid"></div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <!-- Conflict Radar -->
+    <div class="sidebar-card">
+      <div class="scard-hdr"><div class="sh" style="margin-bottom:0">
+        <h3 class="sh-title" style="font-size:1.15rem">Conflict Radar</h3>
+      </div>
+      <div style="font-family:var(--f-m);font-size:.62rem;color:var(--tx3);margin-top:4px;letter-spacing:.06em;text-transform:uppercase">
+        Energy major → BigLaw conflict
+      </div></div>
+      <div class="scard-body" id="conflictRadar"></div>
+    </div>
+
+    <!-- Outreach Queue -->
+    <div class="sidebar-card">
+      <div class="scard-hdr"><div class="sh" style="margin-bottom:0">
+        <h3 class="sh-title" style="font-size:1.15rem">Outreach Queue</h3>
+      </div>
+      <div style="font-family:var(--f-m);font-size:.62rem;color:var(--tx3);margin-top:4px;letter-spacing:.06em;text-transform:uppercase">
+        ranked by urgency + weight
+      </div></div>
+      <div class="scard-body" id="outreachQueue"></div>
+    </div>
+  </div>
+</div>
+
+<!-- D3 NETWORK GRAPH -->
+<div class="network-section">
+  <div class="sh"><h2 class="sh-title">BigLaw Spillage Network</h2>
+    <span class="sh-ct">Co-appearance graph · hover nodes</span></div>
+  <div class="network-card">
+    <div class="network-hdr">
+      <p style="font-size:.85rem;color:var(--tx2);line-height:1.5">
+        When a mega-deal is announced, trace the conflict path:
+        BigLaw takes the mandate → conflict rules them out for the counterparty →
+        boutique in their network catches the overflow mandate.
+        <strong>The thicker the edge, the more reliable the overflow path.</strong>
+      </p>
+    </div>
+    <div class="network-body"><svg id="spillageGraph"></svg></div>
+  </div>
+</div>
+
+<!-- VELOCITY CHART -->
+<div class="velocity-section">
+  <div class="sh"><h2 class="sh-title">Practice Area Velocity</h2>
+    <span class="sh-ct">30-day signal rate vs. prior 30 days</span></div>
+  <div class="vc-grid" id="vcGrid"></div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="ft-src">Sources: <span>CanLII API</span> · <span>SEDAR+</span> ·
+    <span>SEC EDGAR</span> · <span>AER Hearings</span> · <span>Alberta Gazette</span> ·
+    <span>ASC Enforcement</span> · <span>Competition Bureau</span> ·
+    <span>LinkedIn (Proxycurl)</span> · <span>LSA Directory</span> · <span>Google News</span></div>
+  <div class="ft-cron">Cron: every 2h · Digest Sun 09:00 UTC · LSA Sept/Oct</div>
+</div>
+
+</div><!-- /wrap -->
+
+<!-- OUTREACH MODAL -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title" id="modal-title">Draft Outreach Email</span>
+      <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <textarea class="modal-ta" id="modal-ta" rows="10"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-g" onclick="copyOutreach()">📋 Copy</button>
+      <button class="btn btn-p" onclick="document.getElementById('modal').classList.remove('open')">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════ DATA INJECTION ════════ */
+const __TD__ = typeof __TRACKER_DATA__ !== 'undefined' ? __TRACKER_DATA__ : null;
+
+/* ════════ DEMO DATA ════════ */
+const DEMO = {
+  generated_at: new Date().toISOString(),
+  signals: [
+    { id:1, firm_id:"burnet", firm_name:"Burnet, Duckworth & Palmer LLP", tier:"mid", focus:"Energy · Litigation",
+      signal_type:"dual_departure_crisis", practice_area:"litigation", weight:6.0,
+      title:"DUAL DEPARTURE CRISIS: 2 associates left BDP in 30 days",
+      description:"J. Chen and A. Malik (both 2nd-year associates, Energy Litigation) updated LinkedIn to new employers within 18 days of each other. BDP now has two empty desks with active files. They will hire within 2–3 weeks. Do not wait for a job posting. Email the managing partner today.",
+      source_url:"", detected_at: new Date(Date.now()-0.3*3600000).toISOString(), urgency:"same-hour"},
+    { id:2, firm_id:"bennett_jones", firm_name:"Bennett Jones LLP", tier:"big", focus:"Energy · Corporate",
+      signal_type:"sec_crossborder_filing", practice_area:"securities", weight:5.0,
+      title:"SEC 40-F: Tourmaline Oil Corp — US cross-listing filed",
+      description:"Tourmaline Oil filed a Form 40-F with the SEC, registering securities on a US exchange. This requires comprehensive Canadian securities counsel work: NI 51-102 analysis, GAAP reconciliation, ongoing continuous disclosure obligations, and cross-border regulatory advice. One of the most associate-intensive mandates in Calgary securities practice.",
+      source_url:"https://www.sec.gov", detected_at:new Date(Date.now()-1.1*3600000).toISOString(), urgency:"today"},
+    { id:3, firm_id:"mccarthy", firm_name:"McCarthy Tétrault LLP", tier:"big", focus:"Corporate · Litigation",
+      signal_type:"pressure_index_alert", practice_area:"litigation", weight:5.5,
+      title:"Pressure CRISIS: McCarthy Tétrault at 1.42× capacity",
+      description:"Pressure Index: 1.42 — CRISIS. Estimated workload: 2,840 associate-hours this month. Available capacity: 1,995 hours (15 active associates). The firm is mathematically overloaded across its litigation and corporate practice. Expect a job posting within 2–3 weeks.",
+      source_url:"", detected_at:new Date(Date.now()-2*3600000).toISOString(), urgency:"today"},
+    { id:4, firm_id:"parlee_mclaws", firm_name:"Parlee McLaws LLP", tier:"mid", focus:"Litigation · Employment",
+      signal_type:"partner_clock", practice_area:"litigation", weight:4.2,
+      title:"Partner Clock: S. Henderson promoted to Partner at Parlee McLaws",
+      description:"S. Henderson has been promoted to Partner. This triggers the partner clock effect: (1) a senior associate desk is now empty, (2) the new partner needs a junior to delegate to within 90 days, (3) their former peer group is understaffed at the associate level.",
+      source_url:"", detected_at:new Date(Date.now()-4*3600000).toISOString(), urgency:"week"},
+    { id:5, firm_id:"field_law", firm_name:"Field Law", tier:"mid", focus:"Energy · Real Estate",
+      signal_type:"aer_hearing_load", practice_area:"energy", weight:3.8,
+      title:"AER Hearing Load: Field Law in 4 upcoming AER hearings",
+      description:"Field Law appears in 4 upcoming Alberta Energy Regulator hearing proceedings. Energy regulatory work requires substantial hearing prep, record review, and regulatory filing support. Junior associate demand for this practice group will peak in the next 30 days.",
+      source_url:"https://www.aer.ca", detected_at:new Date(Date.now()-6*3600000).toISOString(), urgency:"week"},
+    { id:6, firm_id:"blakes", firm_name:"Blake, Cassels & Graydon LLP", tier:"big", focus:"Corporate · M&A",
+      signal_type:"lateral_magnet", practice_area:"corporate", weight:3.8,
+      title:"Lateral Magnet: Blakes — 4 lateral hires in 60 days",
+      description:"Blakes has announced 4 lateral hires in the past 60 days — aggressive growth mode. Possible triggers: new large mandate requiring rapid team build, poached rainmaker partner, or new practice group launch. Junior associate demand follows within 30–60 days in all scenarios.",
+      source_url:"", detected_at:new Date(Date.now()-8*3600000).toISOString(), urgency:"week"},
+    { id:7, firm_id:"norton_rose", firm_name:"Norton Rose Fulbright", tier:"big", focus:"Energy · Banking",
+      signal_type:"competition_merger_filing", practice_area:"corporate", weight:4.5,
+      title:"Competition Bureau Merger: Norton Rose as counsel (~$650M)",
+      description:"Norton Rose Fulbright is acting as counsel on a merger filing pending Competition Bureau clearance (estimated deal value ~$650M). Competition mergers require extensive economic analysis, document productions, and regulatory submissions — all heavily associate-hours intensive.",
+      source_url:"https://www.canada.ca/competition-bureau", detected_at:new Date(Date.now()-10*3600000).toISOString(), urgency:"today"},
+    { id:8, firm_id:"cassels", firm_name:"Cassels Brock & Blackwell LLP", tier:"mid", focus:"Mining · Securities",
+      signal_type:"practice_velocity_spike", practice_area:"securities", weight:3.5,
+      title:"Velocity Spike: Securities — 2.4× surge in 30 days",
+      description:"Practice area velocity index for Securities reached 2.4× — a 140% increase in signal volume vs. the prior 30-day period. Firms focused on securities are experiencing a structural surge in demand. Cassels' securities focus makes them a prime candidate for imminent junior hiring.",
+      source_url:"", detected_at:new Date(Date.now()-14*3600000).toISOString(), urgency:"week"},
+  ],
+  leaderboard:[
+    {firm_name:"Burnet, Duckworth & Palmer LLP", tier:"mid", score:38.2, urgency:"same-hour", strategies:["turnover","litigation"], corroborated:true},
+    {firm_name:"McCarthy Tétrault LLP",          tier:"big", score:31.5, urgency:"today",     strategies:["corporate","pressure"],  corroborated:true},
+    {firm_name:"Bennett Jones LLP",              tier:"big", score:28.4, urgency:"today",     strategies:["securities","corporate"],corroborated:true},
+    {firm_name:"Parlee McLaws LLP",              tier:"mid", score:22.1, urgency:"week",      strategies:["litigation","hireback"],  corroborated:true},
+    {firm_name:"Norton Rose Fulbright",          tier:"big", score:19.8, urgency:"today",     strategies:["corporate"],             corroborated:false},
+    {firm_name:"Field Law",                      tier:"mid", score:17.4, urgency:"week",      strategies:["energy"],                corroborated:false},
+    {firm_name:"Blake, Cassels & Graydon LLP",  tier:"big", score:14.9, urgency:"week",      strategies:["corporate","lateral"],   corroborated:false},
+    {firm_name:"Cassels Brock & Blackwell",      tier:"mid", score:12.2, urgency:"week",      strategies:["securities"],            corroborated:false},
+    {firm_name:"Miller Thomson LLP",             tier:"mid", score:10.1, urgency:"month",     strategies:["baseline"],              corroborated:false},
+    {firm_name:"Gowling WLG Canada",             tier:"big", score: 8.7, urgency:"month",     strategies:["baseline"],              corroborated:false},
+  ],
+  spillage:[
+    {source:"burnet",     target:"blakes",       weight:38, source_name:"BDP",          target_name:"Blakes"},
+    {source:"field_law",  target:"bennett_jones",weight:27, source_name:"Field Law",    target_name:"Bennett Jones"},
+    {source:"parlee_mclaws",target:"mccarthy",   weight:22, source_name:"Parlee McLaws",target_name:"McCarthy"},
+    {source:"hamilton_law",target:"osler",       weight:18, source_name:"Hamilton",     target_name:"Osler"},
+    {source:"miller_thomson",target:"norton_rose",weight:15,source_name:"Miller Thomson",target_name:"Norton Rose"},
+    {source:"witten",     target:"blakes",       weight:12, source_name:"Witten LLP",   target_name:"Blakes"},
+    {source:"reynolds_mirth",target:"dentons",   weight:10, source_name:"Reynolds Mirth",target_name:"Dentons"},
+  ],
+  pressure:[
+    {firm_id:"mccarthy",   firm_name:"McCarthy Tétrault", tier:"big", pressure_index:1.42,status:"CRISIS",estimated_hours:2840,capacity_hours:1995},
+    {firm_id:"burnet",     firm_name:"BDP",               tier:"mid", pressure_index:1.28,status:"OVERSTRETCHED",estimated_hours:640,capacity_hours:500},
+    {firm_id:"parlee_mclaws",firm_name:"Parlee McLaws",   tier:"mid", pressure_index:1.21,status:"OVERSTRETCHED",estimated_hours:363,capacity_hours:300},
+    {firm_id:"norton_rose",firm_name:"Norton Rose",        tier:"big", pressure_index:1.09,status:"OVERSTRETCHED",estimated_hours:1635,capacity_hours:1500},
+    {firm_id:"field_law",  firm_name:"Field Law",          tier:"mid", pressure_index:0.96,status:"BUSY",estimated_hours:576,capacity_hours:600},
+    {firm_id:"blakes",     firm_name:"Blakes",             tier:"big", pressure_index:0.89,status:"BUSY",estimated_hours:2670,capacity_hours:3000},
+    {firm_id:"cassels",    firm_name:"Cassels Brock",      tier:"mid", pressure_index:0.71,status:"comfortable",estimated_hours:284,capacity_hours:400},
+  ],
+  velocity:[
+    {practice_area:"securities",velocity_ratio:2.4,recent_30d:12,prior_30d:5},
+    {practice_area:"litigation",velocity_ratio:1.9,recent_30d:18,prior_30d:9},
+    {practice_area:"energy",    velocity_ratio:1.7,recent_30d:14,prior_30d:8},
+    {practice_area:"corporate", velocity_ratio:1.5,recent_30d:9, prior_30d:6},
+    {practice_area:"regulatory",velocity_ratio:1.3,recent_30d:7, prior_30d:5},
+    {practice_area:"employment",velocity_ratio:0.8,recent_30d:4, prior_30d:5},
+    {practice_area:"ip",        velocity_ratio:0.6,recent_30d:3, prior_30d:5},
+    {practice_area:"tax",       velocity_ratio:1.1,recent_30d:6, prior_30d:5},
+  ],
+  conflict_radar:[
+    {energy_company:"Cenovus Energy",   biglaw:["Blakes","Bennett Jones"],   free:["McCarthy","Osler"]},
+    {energy_company:"Suncor Energy",    biglaw:["McCarthy Tétrault"],        free:["Blakes","Norton Rose"]},
+    {energy_company:"TC Energy",        biglaw:["Norton Rose Fulbright"],    free:["Bennett Jones","Stikeman"]},
+    {energy_company:"ARC Resources",    biglaw:["Bennett Jones"],            free:["Blakes","McCarthy"]},
+  ],
+};
+
+const D = __TD__ || DEMO;
+
+/* ════════ CONSTANTS ════════ */
+const ICONS={dual_departure_crisis:"💥",pressure_index_alert:"🔥",sec_crossborder_filing:"🌐",
+  sedar_major_deal:"💰",biglaw_spillage_predicted:"🌊",linkedin_turnover_detected:"🚪",
+  partner_clock:"⏰",aer_hearing_load:"⚡",regulatory_wave:"📋",lateral_magnet:"🧲",
+  competitive_hire_gap:"🔀",asc_enforcement_defence:"🛡",competition_merger_filing:"🏛",
+  canlii_appearance_spike:"⚖️",canlii_new_large_file:"📑",sedar_counsel_named:"📄",
+  lsa_retention_gap:"🎓",practice_velocity_spike:"🚀",oci_pipeline_prediction:"📊",
+  job_posting:"📌",lateral_hire:"🔄",ranking:"🏆"};
+const SLBL={dual_departure_crisis:"CRISIS",pressure_index_alert:"PRESSURE",
+  sec_crossborder_filing:"SEC X-BORDER",sedar_major_deal:"MAJOR DEAL",
+  biglaw_spillage_predicted:"SPILLAGE",linkedin_turnover_detected:"EMPTY CHAIR",
+  partner_clock:"PARTNER CLOCK",aer_hearing_load:"AER HEARING",
+  regulatory_wave:"REG WAVE",lateral_magnet:"LATERAL MAGNET",
+  competitive_hire_gap:"COMP. HIRE",asc_enforcement_defence:"ASC ENFORCEMENT",
+  competition_merger_filing:"COMPETITION",canlii_appearance_spike:"ABQB SPIKE",
+  canlii_new_large_file:"LARGE FILE",sedar_counsel_named:"DEAL COUNSEL",
+  lsa_retention_gap:"HIREBACK GAP",practice_velocity_spike:"VELOCITY SPIKE",
+  oci_pipeline_prediction:"OCI PIPELINE",job_posting:"JOB POSTED",
+  lateral_hire:"LATERAL HIRE",ranking:"NEW RANKING"};
+const PAICO={corporate:"⚖️",securities:"📈",litigation:"🏛",energy:"⚡",employment:"👥",
+  real_estate:"🏗",tax:"💼",ip:"💡",restructuring:"🔄",regulatory:"📋",general:"📌"};
+const PANM={corporate:"Corporate",securities:"Securities",litigation:"Litigation",
+  energy:"Energy",employment:"Employment",real_estate:"Real Estate",
+  tax:"Tax",ip:"IP",restructuring:"Restructuring",regulatory:"Regulatory",general:"General"};
+const ULBL={"same-hour":"Same Hour","today":"Today","week":"This Week","3days":"3 Days","month":"This Month"};
+const UCL={"same-hour":"u-samehour","today":"u-today","week":"u-week","3days":"u-3days","month":"u-month"};
+const UCOL={"same-hour":"var(--violet)","today":"var(--red)","week":"var(--amber)","3days":"var(--blue)","month":"var(--green)"};
+
+function ta(iso){const s=(Date.now()-new Date(iso))/1000;
+  if(s<60)return`${~~s}s`;if(s<3600)return`${~~(s/60)}m`;
+  if(s<86400)return`${~~(s/3600)}h`;return`${~~(s/86400)}d`}
+
+/* ════════ KPIs ════════ */
+function renderKPIs(){
+  const s=D.signals||[];
+  const crisis=s.filter(x=>(x.weight||0)>=5.5);
+  const today=s.filter(x=>["same-hour","today"].includes(x.urgency||x.signal_type));
+  const firms=new Set(s.map(x=>x.firm_id)).size;
+  const lb=D.leaderboard||[];
+  document.getElementById("k0").textContent=s.length;
+  document.getElementById("k1").textContent=today.length;
+  document.getElementById("k2").textContent=crisis.length;
+  document.getElementById("k3").textContent=firms;
+  document.getElementById("k4").textContent=(lb[0]?.score||0).toFixed(1);
+  document.getElementById("k4f").textContent=lb[0]?.firm_name?.split(" ")[0]||"—";
+  document.getElementById("ts").textContent="Updated "+ta(D.generated_at);
+  document.getElementById("sigct").textContent=s.length+" signals";
+}
+
+/* ════════ TICKER ════════ */
+function renderTicker(){
+  const s=[...(D.signals||[])].sort((a,b)=>b.weight-a.weight).slice(0,14);
+  const items=s.map(sig=>{
+    const u=sig.urgency||"month";
+    const cls=u==="same-hour"?"t0":u==="today"?"t0":"t1";
+    return`<span class="ticker-item ${cls}"><span class="dot"></span>${sig.firm_name||sig.firm_id} · ${SLBL[sig.signal_type]||sig.signal_type} · w=${sig.weight?.toFixed(1)||"?"}</span>`;
+  }).join("");
+  // Duplicate for seamless loop
+  document.getElementById("ticker").innerHTML=items+items;
+}
+
+/* ════════ SIGNAL CARDS ════════ */
+function buildCard(sig,i){
+  const u=sig.urgency||"month";
+  const ico=ICONS[sig.signal_type]||"📣";
+  const lbl=SLBL[sig.signal_type]||sig.signal_type;
+  const pa=sig.practice_area||"general";
+  const ub=UCL[u]||"u-month";
+  const ud=ULBL[u]||u;
+  const tier=(sig.tier||"?").toUpperCase();
+  return`<div class="sc" data-u="${u}" data-pa="${pa}" data-t="${sig.signal_type}"
+    style="animation-delay:${Math.min(i*.05,.4)}s" onclick="toggle(this)">
+    <div class="sc-icon">${ico}</div>
+    <div>
+      <div class="sc-firm">${sig.firm_name||sig.firm_id}</div>
+      <div class="sc-title">${sig.title}</div>
+      <div class="sc-tags">
+        <span class="tag tag-pa">${PAICO[pa]||"📌"} ${PANM[pa]||pa}</span>
+        <span class="tag tag-sig">${lbl}</span>
+        <span class="tag tag-tier">${tier} · ${sig.focus||""}</span>
+      </div>
+    </div>
+    <div class="sc-meta">
+      <span class="ub ${ub}">${ud}</span>
+      <div><div class="sc-w">${(sig.weight||0).toFixed(1)}</div>
+           <div class="sc-wl">weight</div></div>
+      <div class="sc-ts">${ta(sig.detected_at)}</div>
+    </div>
+    <div class="sc-detail">
+      <p class="sc-desc">${sig.description||""}</p>
+      <div class="sc-actions">
+        ${sig.source_url?`<a href="${sig.source_url}" target="_blank" class="btn btn-g">🔗 Source</a>`:""}
+        <button class="btn btn-p" onclick="event.stopPropagation();openModal('${sig.firm_id}','${sig.signal_type}',this.closest('.sc').querySelector('.sc-desc').textContent)">✉ Draft Email</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSignals(f="all"){
+  let s=D.signals||[];
+  if(f==="same-hour") s=s.filter(x=>x.urgency==="same-hour");
+  else if(f==="today") s=s.filter(x=>["same-hour","today"].includes(x.urgency));
+  else if(f==="pressure") s=s.filter(x=>x.signal_type==="pressure_index_alert"||x.signal_type==="dual_departure_crisis");
+  else if(f==="spillage") s=s.filter(x=>x.signal_type==="biglaw_spillage_predicted");
+  else if(f!=="all") s=s.filter(x=>x.practice_area===f);
+  const g=document.getElementById("sgrid");
+  g.innerHTML=s.length?s.map(buildCard).join(""):`<div style="text-align:center;padding:48px;color:var(--tx3)">
+    <div style="font-size:2.5rem;margin-bottom:8px">📡</div>
+    <div style="font-family:var(--f-d);font-size:1.2rem;font-weight:600">No signals in this filter</div>
+    <div style="font-size:.82rem;margin-top:4px">Check back after the next 2-hour run</div></div>`;
+}
+
+document.getElementById("fbar").addEventListener("click",e=>{
+  const b=e.target.closest(".fbtn");if(!b)return;
+  document.querySelectorAll(".fbtn").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act");
+  renderSignals(b.dataset.f);
+});
+
+function toggle(el){el.classList.toggle("exp")}
+
+/* ════════ LEADERBOARD ════════ */
+function renderLB(){
+  const lb=D.leaderboard||[];
+  const mx=lb[0]?.score||1;
+  document.getElementById("leaderboard").innerHTML=lb.slice(0,10).map((r,i)=>`
+    <div class="lb-row">
+      <span class="lb-rank ${i<3?"top":""}">${i+1}</span>
+      <div><div class="lb-name">${r.firm_name}</div>
+        <div class="lb-sub">${r.tier} · ${r.strategies?.join(" · ")||""}</div></div>
+      <div><div class="lb-bar"><div class="lb-fill" style="width:${~~(r.score/mx*100)}%"></div></div></div>
+      <div class="lb-score" style="color:${UCOL[r.urgency]||"inherit"}">${r.score.toFixed(1)}</div>
+    </div>`).join("");
+}
+
+/* ════════ PRESSURE GRID ════════ */
+function renderPressure(){
+  const p=D.pressure||[];
+  document.getElementById("pressureGrid").innerHTML=p.map(r=>{
+    const pct=Math.min(r.pressure_index*75,100);
+    const st=(r.status||"comfortable").toLowerCase().replace(" ","");
+    return`<div class="pg-card">
+      <div class="pg-firm">${r.firm_name}</div>
+      <div class="pg-bar-wrap"><div class="pg-bar-fill ${st}" style="width:${pct}%"></div></div>
+      <div class="pg-index">${r.pressure_index?.toFixed(2)||"—"}×</div>
+      <div class="pg-status ${st}">${r.status||"—"}</div>
+      <div style="font-family:var(--f-m);font-size:.6rem;color:var(--tx3);margin-top:4px">
+        ${r.estimated_hours||0}h est · ${r.capacity_hours||0}h cap</div>
+    </div>`;
+  }).join("");
+}
+
+/* ════════ CONFLICT RADAR ════════ */
+function renderRadar(){
+  const cr=D.conflict_radar||[];
+  document.getElementById("conflictRadar").innerHTML=cr.slice(0,5).map(r=>`
+    <div class="radar-item">
+      <div><div class="radar-co">${r.energy_company}</div>
+        <div style="font-family:var(--f-m);font-size:.6rem;color:var(--tx3);margin-top:1px;text-transform:uppercase;letter-spacing:.05em">BigLaw conflict</div></div>
+      <div class="radar-firms">${(r.biglaw||[]).join(", ")}</div>
+    </div>`).join("")||"<div style='padding:16px 20px;font-size:.82rem;color:var(--tx3)'>Building from CanLII data…</div>";
+}
+
+/* ════════ OUTREACH QUEUE ════════ */
+function renderOutreach(){
+  const s=[...(D.signals||[])].sort((a,b)=>b.weight-a.weight).slice(0,5);
+  const STRATS={
+    dual_departure_crisis:"Crisis — 2 associates left. Email TODAY.",
+    pressure_index_alert:"Over capacity. Expect posting in 2-3 wks.",
+    sec_crossborder_filing:"US cross-listing → massive securities workload.",
+    sedar_major_deal:"Named on $M+ SEDAR+ deal. Email same day.",
+    biglaw_spillage_predicted:"BigLaw conflict → boutique catches overflow.",
+    linkedin_turnover_detected:"Empty chair — unadvertised vacancy.",
+    partner_clock:"New partner needs a junior within 90 days.",
+    aer_hearing_load:"4+ AER hearings → energy litigation surge.",
+    competition_merger_filing:"Competition clearance → doc-heavy work.",
+  };
+  document.getElementById("outreachQueue").innerHTML=s.map(sig=>`
+    <div class="oplan-item">
+      <div class="oplan-firm">${sig.firm_name||sig.firm_id}</div>
+      <div class="oplan-strat">${STRATS[sig.signal_type]||"Signal-based outreach."}</div>
+      <div class="oplan-urgency" style="color:${UCOL[sig.urgency||"month"]}">${ULBL[sig.urgency||"month"]||"This Month"}</div>
+    </div>`).join("");
+}
+
+/* ════════ VELOCITY ════════ */
+function renderVelocity(){
+  const v=D.velocity||[];
+  document.getElementById("vcGrid").innerHTML=v.map(x=>{
+    const surge=x.velocity_ratio>=2.0;
+    const hot=x.velocity_ratio>=1.5;
+    return`<div class="vc-cell ${surge?"surge":hot?"hot":""}">
+      <div class="vc-emoji">${PAICO[x.practice_area]||"📌"}</div>
+      <div class="vc-name">${PANM[x.practice_area]||x.practice_area}</div>
+      <div class="vc-ratio">${x.velocity_ratio?.toFixed(1)||"—"}×</div>
+      <div class="vc-label ${x.velocity_ratio>=1.5?"up":"stable"}">${x.velocity_ratio>=1.5?"↑ SURGING":"→ STABLE"}</div>
+      <svg class="sparkline" viewBox="0 0 80 24">
+        ${buildSparkline(x.recent_30d,x.prior_30d)}
+      </svg>
+    </div>`;
+  }).join("");
+}
+
+function buildSparkline(r,p){
+  const pts=[p*0.3,p*0.6,p*0.9,p*1.0,(r+p)/2*0.8,r*0.9,r];
+  const mx=Math.max(...pts,1);
+  const w=80/6; const h=24;
+  const xs=pts.map((_,i)=>i*(w));
+  const ys=pts.map(v=>h-2-(v/mx)*(h-4));
+  const d="M"+xs.map((x,i)=>`${x},${ys[i]}`).join(" L");
+  const fill="M"+xs[0]+","+h+" L"+xs.map((x,i)=>`${x},${ys[i]}`).join(" L")+` L${xs[xs.length-1]},${h} Z`;
+  const c=r>=p*1.5?"var(--red)":r>=p?"var(--amber)":"var(--green)";
+  return`<path d="${fill}" fill="${c}" opacity=".15"/><path d="${d}" stroke="${c}" stroke-width="1.5" fill="none"/>`;
+}
+
+/* ════════ D3 SPILLAGE NETWORK ════════ */
+function renderNetwork(){
+  const edges=D.spillage||[];
+  if(!edges.length)return;
+
+  const svg=d3.select("#spillageGraph");
+  const W=svg.node()?.parentElement?.clientWidth||800, H=480;
+  svg.attr("viewBox",`0 0 ${W} ${H}`).attr("preserveAspectRatio","xMidYMid meet");
+
+  // Build node list
+  const nodeMap={};
+  edges.forEach(e=>{
+    if(!nodeMap[e.source])nodeMap[e.source]={id:e.source,name:e.source_name||e.source,type:"boutique"};
+    if(!nodeMap[e.target])nodeMap[e.target]={id:e.target,name:e.target_name||e.target,type:"biglaw"};
+  });
+  const nodes=Object.values(nodeMap);
+  const links=edges.map(e=>({source:e.source,target:e.target,weight:e.weight||1}));
+
+  const wMax=Math.max(...links.map(l=>l.weight));
+
+  const sim=d3.forceSimulation(nodes)
+    .force("link",d3.forceLink(links).id(d=>d.id).distance(d=>120-d.weight*1.5).strength(.7))
+    .force("charge",d3.forceManyBody().strength(-220))
+    .force("center",d3.forceCenter(W/2,H/2))
+    .force("collision",d3.forceCollide(36));
+
+  // Gradient defs
+  const defs=svg.append("defs");
+  const grad=defs.append("linearGradient").attr("id","ngr")
+    .attr("gradientUnits","userSpaceOnUse");
+  grad.append("stop").attr("offset","0%").attr("stop-color","#0C9182");
+  grad.append("stop").attr("offset","100%").attr("stop-color","#059669");
+
+  const g=svg.append("g");
+
+  // Links
+  const link=g.append("g").selectAll("line").data(links).join("line")
+    .attr("class","link")
+    .attr("stroke-width",d=>Math.max(1,d.weight/wMax*6))
+    .attr("stroke-opacity",.5)
+    .attr("stroke","url(#ngr)");
+
+  // Nodes
+  const node=g.append("g").selectAll("g").data(nodes).join("g")
+    .attr("class",d=>"node-"+d.type)
+    .call(d3.drag()
+      .on("start",(ev,d)=>{if(!ev.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y})
+      .on("drag", (ev,d)=>{d.fx=ev.x;d.fy=ev.y})
+      .on("end",  (ev,d)=>{if(!ev.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+  node.append("circle")
+    .attr("r",d=>d.type==="biglaw"?22:16)
+    .attr("fill",d=>d.type==="biglaw"?"#0C9182":"#059669")
+    .attr("stroke","#fff").attr("stroke-width",2)
+    .attr("opacity",d=>d.type==="biglaw"?1:.85);
+
+  node.append("text").attr("class","node-label")
+    .attr("text-anchor","middle").attr("dy","3px").attr("font-size",d=>d.type==="biglaw"?"9px":"8px")
+    .attr("font-weight","600").attr("fill","#fff").attr("pointer-events","none")
+    .text(d=>d.name.split(" ")[0]);
+
+  // Tooltip on hover
+  node.append("title").text(d=>`${d.name} [${d.type}]`);
+
+  // Edge weight labels
+  link.append("title").text(d=>`${d.weight} co-appearances`);
+
+  sim.on("tick",()=>{
+    link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
+        .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+    node.attr("transform",d=>`translate(${d.x},${d.y})`);
+  });
+
+  // Zoom
+  svg.call(d3.zoom().scaleExtent([.5,3]).on("zoom",ev=>g.attr("transform",ev.transform)));
+}
+
+/* ════════ OUTREACH MODAL ════════ */
+const TEMPLATES={
+  dual_departure_crisis:`Subject: First-Year Associate — Immediate Availability — {firm}
+
+Dear Hiring Partner,
+
+I understand {firm} has experienced two recent associate departures. I am a recently called Alberta lawyer with [{pa}] experience available to start immediately. I would welcome the opportunity to fill that gap.
+
+[Your Name] | [Phone] | [Email]`,
+  pressure_index_alert:`Subject: Associate Availability — {firm}
+
+Dear Hiring Partner,
+
+I noticed signals that {firm}'s current team may be operating under elevated capacity pressure. I am a recently called Alberta lawyer with [{pa}] experience and am available to start on short notice.
+
+[Your Name]`,
+  sec_crossborder_filing:`Subject: Securities Associate — Re: US Cross-Listing Mandate — {firm}
+
+Dear Hiring Partner,
+
+I saw the recent SEC 40-F filing involving an Alberta company where {firm} is likely acting as Canadian counsel. My background is in Canadian securities regulation and cross-border disclosure work. I am available immediately.
+
+[Your Name]`,
+  sedar_major_deal:`Subject: First-Year Associate — Securities Background — {firm}
+
+Dear Hiring Partner,
+
+I noticed {firm} was named as counsel on a recent major SEDAR+ filing. My background is in Canadian securities regulation and M&A and I am available to start on short notice.
+
+[Your Name]`,
+  partner_clock:`Subject: First-Year Associate — {firm}
+
+Dear Hiring Partner,
+
+Congratulations on your recent promotion. I am writing at this time because newly promoted partners often benefit from having a capable junior associate to help build their practice. I am a recently called lawyer with [{pa}] experience.
+
+[Your Name]`,
+  default:`Subject: First-Year Associate — {firm}
+
+Dear Hiring Partner,
+
+I am a recently called Alberta lawyer with experience in [{pa}] seeking a first-year associate role in Calgary. I would welcome the chance to discuss my fit with your team.
+
+[Your Name]`,
+};
+
+function openModal(firmId,sigType,desc){
+  const s=D.signals?.find(x=>x.firm_id===firmId&&x.signal_type===sigType)||{};
+  const firm=s.firm_name||firmId;
+  const pa=(PANM[s.practice_area]||"your practice area");
+  const tpl=(TEMPLATES[sigType]||TEMPLATES.default)
+    .replace(/{firm}/g,firm).replace(/{pa}/g,pa);
+  document.getElementById("modal-title").textContent=`Draft: ${firm}`;
+  document.getElementById("modal-ta").value=tpl;
+  document.getElementById("modal").classList.add("open");
+}
+function closeModal(e){if(e.target===document.getElementById("modal"))document.getElementById("modal").classList.remove("open")}
+function copyOutreach(){
+  navigator.clipboard.writeText(document.getElementById("modal-ta").value);
+  const b=document.querySelector(".modal-footer .btn-g");
+  b.textContent="✅ Copied!";setTimeout(()=>b.textContent="📋 Copy",1500);
+}
+
+/* ════════ INIT ════════ */
+renderKPIs();renderTicker();renderSignals();renderLB();
+renderPressure();renderRadar();renderOutreach();renderVelocity();
+setTimeout(renderNetwork, 200);
+</script>
+</body></html>
