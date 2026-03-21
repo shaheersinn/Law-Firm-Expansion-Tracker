@@ -1,0 +1,148 @@
+##
+## .github/workflows/collect_and_alert.yml
+## ─────────────────────────────────────────────────────────────────────────────
+## REPLACES the legacy "Collect & Alert" workflow that was calling
+## `python main.py` with no arguments → printed help → did nothing.
+##
+## This workflow runs a TRUE deep scrape:
+##   Phase 1 — All 24 signal strategies        (--run deep)
+##   Phase 2 — ML demand forecast              (--forecast)
+##   Phase 3 — Competitive landscape scan      (--competition)
+##   Phase 4 — Predictive demand model         (--predict)
+##   Phase 5 — Scored leaderboard + outreach   (--leaderboard --outreach)
+##   Phase 6 — Dashboard regeneration          (--dashboard)
+##
+## Expected runtime: 35–55 minutes.
+## Job timeout: 60 minutes (GHA default is 360; we set a tight bound).
+## ─────────────────────────────────────────────────────────────────────────────
+
+name: Collect & Alert (deep)
+
+on:
+  ## Manual trigger — use this to kick off an on-demand full scrape
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "deep (all phases) | full (signals only) | bi-hourly | daily"
+        default: "deep"
+        required: false
+
+  ## Scheduled triggers (keep the old cadence the legacy workflow used)
+  schedule:
+    - cron: "0 */2 * * *"      # every 2 hours — bi-hourly fast pass
+    - cron: "0 6 * * *"        # 06:00 UTC daily — full deep scrape
+
+env:
+  PYTHONPATH: "."
+
+jobs:
+  collect-and-alert:
+    name: Collect & Alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 60          # hard ceiling — never waste GHA minutes
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Python ────────────────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── Restore DB cache ──────────────────────────────────────────────────
+      - name: Restore DB cache
+        uses: actions/cache@v4
+        with:
+          path: tracker.db
+          key: db-${{ github.run_id }}
+          restore-keys: db-
+
+      # ── Install deps ──────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Resolve run mode ──────────────────────────────────────────────────
+      # Scheduled 06:00 UTC → deep   |   */2 hourly → bi-hourly
+      # Manual dispatch uses the input.
+      - name: Set MODE
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 6 * * *" ]; then
+            echo "mode=deep" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=bi-hourly" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Phase 1 · Signal collection ───────────────────────────────────────
+      - name: Phase 1 · Signal collection (${{ steps.mode.outputs.mode }})
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          CANLII_API_KEY:      ${{ secrets.CANLII_API_KEY }}
+          RAPIDAPI_KEY:        ${{ secrets.RAPIDAPI_KEY }}
+          PROXYCURL_API_KEY:   ${{ secrets.PROXYCURL_API_KEY }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          SIGNAL_LOOKBACK_DAYS: "90"
+          SCRAPE_DEPTH:        "deep"
+        run: python main_v5.py --run ${{ steps.mode.outputs.mode }}
+
+      # ── Phase 2 · ML Demand Forecast ──────────────────────────────────────
+      - name: Phase 2 · ML demand forecast
+        if: ${{ steps.mode.outputs.mode == 'deep' || steps.mode.outputs.mode == 'full' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python main_v5.py --forecast
+
+      # ── Phase 3 · Competitive landscape ───────────────────────────────────
+      - name: Phase 3 · Competitive landscape
+        if: ${{ steps.mode.outputs.mode == 'deep' || steps.mode.outputs.mode == 'full' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main_v5.py --competition
+
+      # ── Phase 4 · Predictive demand model ─────────────────────────────────
+      - name: Phase 4 · Predictive demand model
+        if: ${{ steps.mode.outputs.mode == 'deep' || steps.mode.outputs.mode == 'full' }}
+        run: python main_v5.py --predict
+
+      # ── Phase 5 · Leaderboard + A/B report ────────────────────────────────
+      - name: Phase 5 · Leaderboard + A/B performance report
+        if: ${{ steps.mode.outputs.mode == 'deep' || steps.mode.outputs.mode == 'full' }}
+        run: |
+          python main_v5.py --leaderboard
+          python main_v5.py --ab-report
+
+      # ── Phase 6 · Dashboard ───────────────────────────────────────────────
+      - name: Phase 6 · Regenerate dashboard
+        run: python main_v5.py --dashboard
+
+      # ── Save DB cache ─────────────────────────────────────────────────────
+      - name: Save DB cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: tracker.db
+          key: db-${{ github.run_id }}
+
+      # ── Commit dashboard ──────────────────────────────────────────────────
+      - name: Commit & push dashboard
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "[bot] deep scrape — ${{ steps.mode.outputs.mode }}"
+          file_pattern: "tracker.db docs/index.html reports/*.json"
+
+      # ── Upload DB artifact ─────────────────────────────────────────────────
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tracker-db-${{ github.run_id }}
+          path: tracker.db
+          retention-days: 7
