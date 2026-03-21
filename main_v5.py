@@ -36,6 +36,11 @@ def main():
     p.add_argument("--gravity",    action="store_true")
     p.add_argument("--dashboard",  action="store_true")
     p.add_argument("--init-db",    action="store_true", dest="init_db")
+    # BUG FIX: --ab-report was called in tracker.yml weekly-digest job but
+    # was never registered as an argparse argument — argparse silently printed
+    # help and exited 0, so no A/B report was ever generated.
+    p.add_argument("--ab-report",  action="store_true", dest="ab_report",
+                   help="Print A/B outreach performance report")
     p.add_argument("--background", type=str, default="")
     args = p.parse_args()
 
@@ -131,6 +136,12 @@ def main():
     elif args.outreach:
         from outreach.generator import generate_weekly_outreach_plan, print_outreach_plan
         print_outreach_plan(generate_weekly_outreach_plan(10))
+
+    # BUG FIX: wired --ab-report to the actual generate_ab_report() function
+    # that lives in intelligence/adaptive/ab_optimizer.py
+    elif args.ab_report:
+        from intelligence.adaptive.ab_optimizer import generate_ab_report
+        print(generate_ab_report())
 
     else:
         p.print_help()
