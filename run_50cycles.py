@@ -161,7 +161,7 @@ def insert_signals(db: Database, signals: list[dict]) -> list[dict]:
             db.conn.execute("""
                 INSERT OR IGNORE INTO signals
                   (firm_id, firm_name, signal_type, title, url, body,
-                   department, department_score, seen_at, dedup_key)
+                   department, department_score, scraped_at, dedup_key)
                 VALUES (?,?,?,?,?,?,?,?,?,?)
             """, (s["firm_id"], s["firm_name"], s["signal_type"],
                   s["title"], s["url"], s["body"],
