@@ -270,5 +270,103 @@ def get_all_signals_for_dashboard(days: int = 30) -> list:
     return [dict(r) for r in rows]
 
 
+class Database:
+    """
+    ORM-lite wrapper around a SQLite connection.
+
+    Provides:
+      • self.conn — raw sqlite3.Connection for direct SQL when needed
+      • close()
+      • get_baseline(firm_id, dept) → list[float]
+      • get_signal_velocity(firm_id, dept) → (this_week, last_week)
+      • get_website_hash(firm_id, url) → str | None
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        self._init_tables()
+
+    def _init_tables(self):
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS signals (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                firm_id          TEXT    NOT NULL,
+                firm_name        TEXT,
+                signal_type      TEXT    NOT NULL DEFAULT 'publication',
+                title            TEXT,
+                url              TEXT,
+                body             TEXT,
+                department       TEXT,
+                department_score REAL    DEFAULT 1.0,
+                scraped_at       TEXT,
+                dedup_key        TEXT    UNIQUE,
+                confidence       REAL    DEFAULT 0.5
+            );
+
+            CREATE TABLE IF NOT EXISTS weekly_scores (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                firm_id      TEXT    NOT NULL,
+                firm_name    TEXT,
+                department   TEXT,
+                score        REAL    NOT NULL DEFAULT 0.0,
+                signal_count INTEGER DEFAULT 0,
+                breakdown    TEXT,
+                week_start   TEXT,
+                UNIQUE(firm_id, department, week_start)
+            );
+
+            CREATE TABLE IF NOT EXISTS website_hashes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                firm_id    TEXT    NOT NULL,
+                url        TEXT    NOT NULL,
+                hash       TEXT,
+                updated_at TEXT,
+                UNIQUE(firm_id, url)
+            );
+        """)
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+    def get_baseline(self, firm_id: str, dept: str) -> list[float]:
+        """Return list of historical weekly scores for z-score computation."""
+        rows = self.conn.execute(
+            "SELECT score FROM weekly_scores "
+            "WHERE firm_id=? AND department=? ORDER BY week_start DESC LIMIT 8",
+            (firm_id, dept),
+        ).fetchall()
+        return [r["score"] for r in rows]
+
+    def get_signal_velocity(self, firm_id: str, dept: str) -> tuple[int, int]:
+        """Return (this_week_count, last_week_count) for velocity arrows."""
+        this_week = self.conn.execute(
+            "SELECT COUNT(*) FROM signals "
+            "WHERE firm_id=? AND department=? "
+            "AND scraped_at >= date('now', '-7 days')",
+            (firm_id, dept),
+        ).fetchone()[0]
+        last_week = self.conn.execute(
+            "SELECT COUNT(*) FROM signals "
+            "WHERE firm_id=? AND department=? "
+            "AND scraped_at >= date('now', '-14 days') "
+            "AND scraped_at <  date('now', '-7 days')",
+            (firm_id, dept),
+        ).fetchone()[0]
+        return this_week, last_week
+
+    def get_website_hash(self, firm_id: str, url: str):
+        """Return stored content hash for a URL, or None if unseen."""
+        row = self.conn.execute(
+            "SELECT hash FROM website_hashes WHERE firm_id=? AND url=?",
+            (firm_id, url),
+        ).fetchone()
+        return row["hash"] if row else None
+
+
 if __name__ == "__main__":
     init_db()

@@ -254,6 +254,167 @@ class AlertDispatcher:
         </body></html>"""
 
 
+# ── Title / message helper functions ──────────────────────────────────────────
+
+import re as _re
+from urllib.parse import urlparse as _urlparse
+
+_TAG_RE = _re.compile(r'^\[.*?\]\s*')
+_CAMEL_FIX = _re.compile(r'(?<=[a-z])(?=[A-Z])')
+_EMBEDDED_PREFIX = _re.compile(
+    r'^(?:Publication|Press\s*Release|Insights?|News|Article|Update|Alert|'
+    r'Report|Blog|Post|Podcast|Webinar|Event)\s*(?=[A-Z])',
+    _re.IGNORECASE,
+)
+
+_BREAKDOWN_LABELS: dict[str, str] = {
+    "press_release":  "press release",
+    "publication":    "publication",
+    "practice_page":  "practice page",
+    "job_posting":    "job posting",
+    "lateral_hire":   "lateral hire",
+    "recruit_posting": "articling recruit",
+    "bar_leadership": "bar leadership",
+    "ranking":        "ranking",
+    "court_record":   "court record",
+    "deal_record":    "deal record",
+    "ip_filing":      "IP filing",
+    "alumni_hire":    "alumni hire",
+}
+_SKIP_SIGNAL_TYPES = {"website_snapshot"}
+
+
+def _clean_title(raw: str) -> str:
+    """
+    Strip source-tag prefixes like [Practice Page], [Firm News], [NRF Insights],
+    remove 'FirmName — ' prefixes, and fix camelCase word merges.
+    """
+    if not raw or not raw.strip():
+        return "Signal"
+
+    title = _TAG_RE.sub("", raw).strip()
+
+    # Strip "FirmName — Section" pattern (em-dash U+2014 or regular dash)
+    if "\u2014" in title:
+        parts = title.split("\u2014", 1)
+        right = parts[1].strip()
+        if right and len(right) > 3:
+            title = right
+
+    # Strip embedded source-type words merged at start (e.g. "PublicationThe …")
+    title = _EMBEDDED_PREFIX.sub("", title).strip()
+
+    # Fix CamelCase merges (e.g. "actionsCanada" → "actions Canada")
+    title = _CAMEL_FIX.sub(" ", title)
+
+    return title.strip() or "Signal"
+
+
+def _fmt_breakdown(breakdown: dict) -> str:
+    """
+    Format a signal-type-count dict into a human-readable string.
+    Uses full labels; skips internal types (website_snapshot).
+    """
+    if not breakdown:
+        return ""
+    parts = []
+    for stype, count in sorted(breakdown.items(), key=lambda x: -x[1]):
+        if stype in _SKIP_SIGNAL_TYPES:
+            continue
+        label = _BREAKDOWN_LABELS.get(stype, stype.replace("_", " "))
+        plural_s = "s" if count != 1 else ""
+        parts.append(f"{count} {label}{plural_s}")
+    return ", ".join(parts)
+
+
+def _strength_badge(score: float) -> str:
+    """Return a colour-coded emoji based on expansion score."""
+    if score >= 12:
+        return "🔴"
+    if score >= 8:
+        return "🟠"
+    if score >= 5:
+        return "🟡"
+    return "🟢"
+
+
+def _page_name_from_url(url: str) -> str:
+    """Extract a readable page name from a URL path segment."""
+    try:
+        path = _urlparse(url).path.rstrip("/")
+        if not path:
+            return "homepage"
+        segment = path.split("/")[-1]
+        name = segment.replace("-", " ").replace("_", " ").title()
+        return name if name else path
+    except Exception:
+        return url
+
+
+class Notifier:
+    """Builds Telegram-style alert messages (no actual sending in test mode)."""
+
+    def __init__(self, config):
+        self.config = config
+
+    def _build_message(
+        self,
+        expansion_alerts: list,
+        website_changes: list,
+        new_signals: list,
+    ) -> str:
+        """
+        Compose a concise Telegram HTML message summarising the cycle.
+
+        Constraints enforced:
+          • Never exceeds 4 096 chars
+          • Proper plurals (not lazy "(s)" form)
+          • Scores shown as badges, not raw "Score N.N"
+          • Internal signal type 'website_snapshot' never exposed
+          • All signal titles have [Source Tag] prefixes stripped
+          • No cryptic abbreviations (pg / pub / rec)
+          • Website changes shown by page name, not raw URL
+        """
+        n = len(new_signals)
+        signal_word = "signal" if n == 1 else "signals"
+        lines = [
+            "📊 <b>Law Firm Expansion Tracker</b>",
+            f"{n} new {signal_word} detected",
+        ]
+
+        if expansion_alerts:
+            lines.append("\n🚨 <b>Expansion Alerts</b>")
+            for a in expansion_alerts[:8]:
+                badge = _strength_badge(a["expansion_score"])
+                dept = a["department"]
+                firm = a["firm_name"]
+                velocity = a.get("velocity_arrow", "")
+                breakdown_str = _fmt_breakdown(a.get("signal_breakdown", {}))
+                lines.append(f"\n{badge} <b>{firm}</b> {velocity}".rstrip())
+                lines.append(f"   {dept}")
+                if breakdown_str:
+                    lines.append(f"   {breakdown_str}")
+                top = a.get("top_signals", [])
+                if top:
+                    clean = _clean_title(top[0].get("title", ""))
+                    if clean and clean != "Signal":
+                        lines.append(f"   📌 {clean}")
+
+        if website_changes:
+            lines.append("\n🌐 <b>Website Changes</b>")
+            for c in website_changes[:5]:
+                page = _page_name_from_url(c["url"])
+                lines.append(f"• {c['firm_name']}: {page}")
+
+        if not expansion_alerts and not website_changes:
+            lines.append("\n✓ No significant activity this cycle")
+
+        msg = "\n".join(lines)
+        if len(msg) > 4096:
+            msg = msg[:4090] + "…"
+        return msg
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     AlertDispatcher().dispatch_unalerted()
