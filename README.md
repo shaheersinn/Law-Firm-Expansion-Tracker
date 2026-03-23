@@ -44,6 +44,11 @@ law_tracker/
 ├── alerts/
 │   └── notifier.py            # Telegram (Tier-1 instant) + SendGrid (weekly digest)
 │
+├── intelligence/
+│   ├── decision_engine.py     # Picks the best action each morning
+│   ├── reply_coach.py         # Coaches replies and interview prep
+│   └── custom_agents.py       # Multi-agent analysis: scout, momentum, strategy, risk
+│
 ├── database/
 │   └── db.py                  # SQLite schema (all 5 strategies)
 │
@@ -147,10 +152,27 @@ python main_enhanced.py --strategy spillage
 python main_enhanced.py --leaderboard     # ranked opportunity scores
 python main_enhanced.py --graph           # spillage graph + conflict radar
 python main_enhanced.py --outreach        # print personalized email drafts
+python main_v5.py --agents                # multi-agent intelligence report
+python main_v5.py --agents --agents-top 8 --agents-days 21
 
 # Alerts
 python main_enhanced.py --digest          # send weekly email digest
 ```
+
+### Custom Agent Swarm
+
+The tracker now supports a deterministic multi-agent layer that reviews the
+same signal store from four perspectives:
+
+1. **Signal Scout** — finds corroborated firms and practice-area hotspots.
+2. **Momentum Analyst** — spots firms whose signal volume is accelerating.
+3. **Opportunity Strategist** — merges leaderboard rank with predicted demand.
+4. **Risk Guard** — warns when a recommendation is stale, thinly supported, or
+   already saturated with outreach.
+
+Running `python main_v5.py --agents` prints a single markdown briefing, writes a
+JSON artifact to `reports/agent_swarm_report.json`, and persists the run in the
+SQLite database for later review.
 
 ---
 
