@@ -1,14 +1,15 @@
 """
-dashboard/generator.py  (v2)
-Reads live DB and injects JSON into docs/index.html.
+dashboard/generator.py
+Reads live DB, validates uploaded dashboard data, and injects JSON into docs/index.html.
 """
-import json, pathlib, logging, sys, os, math
+import json, pathlib, logging, sys, os, math, re
 from datetime import datetime
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config_calgary import FIRM_BY_ID, REPORT_OUTPUT_DIR, DASHBOARD_OUTPUT
 from database.db import get_all_signals_for_dashboard, get_spillage_graph
+from dashboard.validation_agents import validate_dashboard_records
 
 log = logging.getLogger(__name__)
 
@@ -58,16 +59,56 @@ def build_leaderboard(signals):
         })
     return sorted(rows, key=lambda x: x["score"], reverse=True)
 
+
+
+def _inject_data(html, payload_json):
+    replacement = (
+        f"const __TRACKER_DATA__ = {payload_json};\n"
+        f"const __TD__ = __TRACKER_DATA__;"
+    )
+
+    fresh = re.sub(
+        r"const __TD__\s*=\s*typeof __TRACKER_DATA__[^\n]*",
+        replacement,
+        html,
+        count=1,
+    )
+    if fresh != html:
+        return fresh
+
+    injected = re.sub(
+        r"const __TRACKER_DATA__\s*=\s*\{.*?\};\s*\nconst __TD__[^\n]*",
+        replacement,
+        html,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if injected != html:
+        return injected
+
+    legacy = re.sub(
+        r"const RAW_DATA\s*=\s*typeof __TRACKER_DATA__[^\n]*",
+        replacement,
+        html,
+        count=1,
+    )
+    if legacy != html:
+        return legacy
+
+    log.error("[Dashboard] Failed to inject payload into %s", DASHBOARD_OUTPUT)
+    return html
+
 def generate_dashboard():
-    raw  = get_all_signals_for_dashboard(days=30)
+    raw = get_all_signals_for_dashboard(days=30)
+    validated, validation_summary = validate_dashboard_records(raw)
     edges = get_spillage_graph()
-    lb   = build_leaderboard(raw)
+    lb = build_leaderboard(validated)
     spill = [{"boutique": FIRM_BY_ID.get(e["boutique_id"],{}).get("name",e["boutique_id"]),
                "biglaw":   FIRM_BY_ID.get(e["biglaw_id"],{}).get("name",e["biglaw_id"]),
                "count":    e["co_appearances"]} for e in edges[:12]]
 
     enriched = []
-    for s in raw[:50]:
+    for s in validated:
         firm = FIRM_BY_ID.get(s["firm_id"],{})
         enriched.append({**s,
             "firm_name": firm.get("name",s["firm_id"]),
@@ -77,19 +118,18 @@ def generate_dashboard():
         })
 
     payload = {"generated_at": datetime.utcnow().isoformat()+"Z",
-               "signals": enriched, "leaderboard": lb, "spillage": spill}
+               "signals": enriched, "leaderboard": lb, "spillage": spill,
+               "validation": validation_summary}
     js = json.dumps(payload, default=str, ensure_ascii=False)
 
     tmpl = pathlib.Path(DASHBOARD_OUTPUT).read_text(encoding="utf-8")
-    out  = tmpl.replace(
-        "const RAW_DATA = typeof __TRACKER_DATA__ !== 'undefined' ? __TRACKER_DATA__ : null;",
-        f"const __TRACKER_DATA__ = {js};\nconst RAW_DATA = __TRACKER_DATA__;"
-    )
+    out = _inject_data(tmpl, js)
     pathlib.Path(DASHBOARD_OUTPUT).write_text(out, encoding="utf-8")
     pathlib.Path(REPORT_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     with open(f"{REPORT_OUTPUT_DIR}/leaderboard.json","w") as f: json.dump(lb, f, indent=2, default=str)
     with open(f"{REPORT_OUTPUT_DIR}/signals.json","w") as f: json.dump(enriched, f, indent=2, default=str)
-    log.info("[Dashboard] %d signals → %s", len(enriched), DASHBOARD_OUTPUT)
+    with open(f"{REPORT_OUTPUT_DIR}/dashboard_validation.json","w") as f: json.dump(validation_summary, f, indent=2, default=str)
+    log.info("[Dashboard] %d/%d validated signals → %s", len(validated), len(raw), DASHBOARD_OUTPUT)
     return payload
 
 if __name__ == "__main__":
