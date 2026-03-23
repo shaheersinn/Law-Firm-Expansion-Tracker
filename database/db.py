@@ -122,6 +122,16 @@ def init_db():
     )""")
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS agent_runs (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_name     TEXT    NOT NULL,
+        generated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        summary        TEXT,
+        report_markdown TEXT,
+        report_json    TEXT
+    )""")
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS firm_appearance_stats (
         firm_id      TEXT    NOT NULL,
         week_start   TEXT    NOT NULL,
@@ -268,6 +278,18 @@ def get_all_signals_for_dashboard(days: int = 30) -> list:
     """, (f"-{days}",)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def save_agent_run(agent_name: str, summary: str, report_markdown: str, report_json: dict) -> int:
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO agent_runs (agent_name, summary, report_markdown, report_json)
+        VALUES (?, ?, ?, ?)
+    """, (agent_name, summary, report_markdown, json.dumps(report_json, default=str)))
+    conn.commit()
+    run_id = cur.lastrowid
+    conn.close()
+    return run_id
 
 
 if __name__ == "__main__":

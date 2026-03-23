@@ -29,6 +29,11 @@ def main():
     p.add_argument("--outcome",    type=str, help="Record outcome: 'firm=burnet result=reply'")
     p.add_argument("--reply",      type=str, help="firm_id for reply coaching (prompts for reply text)")
     p.add_argument("--interview-prep", type=str, dest="interview_prep", help="firm_id for interview brief")
+    p.add_argument("--agents",     action="store_true", help="Run custom multi-agent intelligence report")
+    p.add_argument("--agents-top", type=int, default=5, dest="agents_top",
+                   help="Number of firms/findings to include in the agent report")
+    p.add_argument("--agents-days", type=int, default=14, dest="agents_days",
+                   help="Lookback window for the custom agent report")
     p.add_argument("--leaderboard",action="store_true")
     p.add_argument("--outreach",   action="store_true")
     p.add_argument("--digest",     action="store_true")
@@ -108,6 +113,12 @@ def main():
         from intelligence.reply_coach import ReplyCoach
         brief = ReplyCoach().generate_interview_brief(args.interview_prep, args.background)
         print(brief)
+
+    elif args.agents:
+        from intelligence.custom_agents import run_custom_agent_swarm
+        result = run_custom_agent_swarm(top_n=args.agents_top, days=args.agents_days)
+        print(result["markdown"])
+        log.info("Agent swarm report saved to %s", result["report_path"])
 
     elif args.leaderboard:
         from scoring.aggregator import compute_firm_scores, print_leaderboard
