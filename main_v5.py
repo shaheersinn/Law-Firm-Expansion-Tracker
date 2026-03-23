@@ -35,6 +35,7 @@ def main():
     p.add_argument("--graph",      action="store_true")
     p.add_argument("--gravity",    action="store_true")
     p.add_argument("--dashboard",  action="store_true")
+    p.add_argument("--verify-signals", action="store_true", dest="verify_signals", help="Run the multi-agent scraped-data verifier")
     p.add_argument("--init-db",    action="store_true", dest="init_db")
     # BUG FIX: --ab-report was called in tracker.yml weekly-digest job but
     # was never registered as an argparse argument — argparse silently printed
@@ -126,6 +127,11 @@ def main():
     elif args.dashboard:
         from dashboard.generator import generate_dashboard
         generate_dashboard(); log.info("Dashboard regenerated.")
+
+    elif args.verify_signals:
+        from database.signal_verifier import verify_recent_signals
+        verify_recent_signals(days=90)
+        log.info("Signal verification complete.")
 
     elif args.digest:
         from scoring.aggregator import compute_firm_scores

@@ -38,14 +38,15 @@ law_tracker/
 ├── scoring/
 │   └── aggregator.py          # Time-decay scoring, corroboration boost, leaderboard
 │
+├── database/
+│   ├── db.py                  # SQLite schema + signal storage
+│   └── signal_verifier.py     # Multi-agent verification jury for scraped data
+│
 ├── outreach/
 │   └── generator.py           # Signal-aware personalized email drafts
 │
 ├── alerts/
 │   └── notifier.py            # Telegram (Tier-1 instant) + SendGrid (weekly digest)
-│
-├── database/
-│   └── db.py                  # SQLite schema (all 5 strategies)
 │
 └── .github/workflows/
     └── tracker.yml            # 4 cron jobs + manual dispatch
@@ -63,6 +64,23 @@ tier_mult           = 1.20 for boutiques, 1.10 for mid-size, 1.0 for BigLaw
 ```
 
 Signals decay exponentially so a 7-day-old alert is worth ~50% of a fresh one.
+
+---
+
+## Multi-Agent Verification Jury
+
+Every scraped signal can now be passed through a custom verification panel before
+it is prioritized on the dashboard. The jury blends six specialized agents:
+
+1. **Source Reliability Agent** — scores domain authority (CanLII, SEDAR+, SEC, etc.)
+2. **Entity Consistency Agent** — confirms the scraped text actually references the target firm
+3. **Temporal Integrity Agent** — checks lookback windows and date anomalies
+4. **Content Integrity Agent** — rejects boilerplate or low-information scrape payloads
+5. **Numerical Sanity Agent** — validates weight ranges and numeric plausibility
+6. **Cross-Signal Consensus Agent** — looks for corroboration or suspicious duplication in the DB
+
+The final verdict is one of `verified`, `review`, or `rejected`, and the dashboard
+can surface the confidence score plus a short explanation for each signal.
 
 ---
 
@@ -147,6 +165,7 @@ python main_enhanced.py --strategy spillage
 python main_enhanced.py --leaderboard     # ranked opportunity scores
 python main_enhanced.py --graph           # spillage graph + conflict radar
 python main_enhanced.py --outreach        # print personalized email drafts
+python main_v5.py --verify-signals        # run the custom verification agents over scraped data
 
 # Alerts
 python main_enhanced.py --digest          # send weekly email digest

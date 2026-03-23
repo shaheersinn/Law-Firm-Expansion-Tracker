@@ -8,7 +8,8 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config_calgary import FIRM_BY_ID, REPORT_OUTPUT_DIR, DASHBOARD_OUTPUT
-from database.db import get_all_signals_for_dashboard, get_spillage_graph
+from database.db import get_spillage_graph
+from database.signal_verifier import get_verified_signals_for_dashboard
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def build_leaderboard(signals):
     rows = []
     for fid, sigs in firm_sigs.items():
         firm  = FIRM_BY_ID.get(fid, {"name": fid, "tier":"?","focus":[]})
-        score = sum(s["weight"] * _decay(s["detected_at"]) for s in sigs)
+        score = sum(s["weight"] * _decay(s["detected_at"]) * max(0.2, s.get("confidence_score") or 0.6) for s in sigs)
         strats = set(SIG_TO_STRAT.get(s["signal_type"],"other") for s in sigs)
         if len(strats) >= 2: score *= 1.30
         score *= {"boutique":1.2,"mid":1.1,"big":1.0}.get(firm.get("tier","big"),1.0)
@@ -55,11 +56,13 @@ def build_leaderboard(signals):
             "corroborated": len(strats)>=2,
             "urgency": URGENCY_MAP.get(top["signal_type"],"month"),
             "top_signal": top.get("title","")[:80],
+            "verification_status": top.get("verification_status", "pending"),
+            "confidence_score": round(top.get("confidence_score") or 0.0, 3),
         })
     return sorted(rows, key=lambda x: x["score"], reverse=True)
 
 def generate_dashboard():
-    raw  = get_all_signals_for_dashboard(days=30)
+    raw  = get_verified_signals_for_dashboard(days=30)
     edges = get_spillage_graph()
     lb   = build_leaderboard(raw)
     spill = [{"boutique": FIRM_BY_ID.get(e["boutique_id"],{}).get("name",e["boutique_id"]),
@@ -74,6 +77,9 @@ def generate_dashboard():
             "tier":      firm.get("tier","?"),
             "focus":     " · ".join(firm.get("focus",[])),
             "urgency":   URGENCY_MAP.get(s["signal_type"],"month"),
+            "verification_status": s.get("verification_status", "pending"),
+            "confidence_score": round(s.get("confidence_score") or 0.0, 3),
+            "verification_summary": s.get("verification_summary", ""),
         })
 
     payload = {"generated_at": datetime.utcnow().isoformat()+"Z",
