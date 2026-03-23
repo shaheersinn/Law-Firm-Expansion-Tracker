@@ -27,18 +27,23 @@ def init_db():
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS signals (
-        id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        firm_id        TEXT    NOT NULL,
-        signal_type    TEXT    NOT NULL,
-        practice_area  TEXT,
-        weight         REAL    NOT NULL DEFAULT 1.0,
-        title          TEXT,
-        description    TEXT,
-        source_url     TEXT,
-        raw_data       TEXT,
-        dedup_hash     TEXT    UNIQUE,
-        detected_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-        alerted        INTEGER NOT NULL DEFAULT 0
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        firm_id              TEXT    NOT NULL,
+        signal_type          TEXT    NOT NULL,
+        practice_area        TEXT,
+        weight               REAL    NOT NULL DEFAULT 1.0,
+        title                TEXT,
+        description          TEXT,
+        source_url           TEXT,
+        raw_data             TEXT,
+        dedup_hash           TEXT    UNIQUE,
+        detected_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+        alerted              INTEGER NOT NULL DEFAULT 0,
+        confidence_score     REAL,
+        low_confidence       INTEGER NOT NULL DEFAULT 0,
+        verification_status  TEXT    DEFAULT 'pending',
+        verification_summary TEXT,
+        verification_payload TEXT
     )""")
 
     cur.execute("""
@@ -129,6 +134,18 @@ def init_db():
         zscore       REAL,
         PRIMARY KEY (firm_id, week_start)
     )""")
+
+    cols = {row[1] for row in cur.execute("PRAGMA table_info(signals)")}
+    migrations = {
+        "confidence_score": "ALTER TABLE signals ADD COLUMN confidence_score REAL",
+        "low_confidence": "ALTER TABLE signals ADD COLUMN low_confidence INTEGER NOT NULL DEFAULT 0",
+        "verification_status": "ALTER TABLE signals ADD COLUMN verification_status TEXT DEFAULT 'pending'",
+        "verification_summary": "ALTER TABLE signals ADD COLUMN verification_summary TEXT",
+        "verification_payload": "ALTER TABLE signals ADD COLUMN verification_payload TEXT",
+    }
+    for col, ddl in migrations.items():
+        if col not in cols:
+            cur.execute(ddl)
 
     conn.commit()
     conn.close()
