@@ -1,0 +1,9 @@
+new_office
+new_practice_group
+merger
+lateral_hire_group
+office_relocation
+office_expansion
+strategic_alliance
+new_jurisdiction_license
+department_restructure

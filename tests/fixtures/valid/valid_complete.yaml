@@ -1,0 +1,25 @@
+record_id: osler-new-office-london-2026
+firm_name: "Osler, Hoskin & Harcourt LLP"
+expansion_type: new_office
+practice_areas:
+  - Corporate & M&A
+  - Capital Markets
+country: GB
+region: England
+city: London
+announced_date: "2026-02-01"
+effective_date: "2026-04-01"
+source_url: "https://www.osler.com/en/news/2026/osler-london-office"
+source_type: firm_press_release
+confidence: confirmed
+status: published
+headcount: 12
+related_records: []
+tags:
+  - london
+  - uk-expansion
+notes: "Osler opened its first London office with 12 lawyers focused on cross-border M&A and capital markets."
+created_at: "2026-02-01T10:00:00Z"
+last_modified: "2026-02-15T09:00:00Z"
+schema_version: "1.0.0"
+created_by: "testuser"

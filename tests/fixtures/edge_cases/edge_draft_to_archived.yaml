@@ -1,0 +1,18 @@
+# Edge case: record that goes draft -> archived (explicitly abandoned)
+record_id: acme-law-new-office-dubai-2025
+firm_name: "Acme Law Group"
+expansion_type: new_office
+practice_areas:
+  - Corporate & M&A
+country: AE
+city: Dubai
+announced_date: "2023-06-15"
+source_url: "https://www.acmelaw.com/news/2023/dubai-announcement"
+source_type: legal_news
+confidence: low
+status: archived
+notes: "Expansion was announced in 2023 but never materialized. Record archived as abandoned. announced_date is older than 2 years."
+created_at: "2023-06-15T09:00:00Z"
+last_modified: "2026-01-05T10:00:00Z"
+schema_version: "1.0.0"
+created_by: "testuser"
